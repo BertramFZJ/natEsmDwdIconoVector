@@ -47,7 +47,7 @@ PROGRAM MAIN
         END DO
     ENDDO
 
-    CALL subSUM(matrixSIN2(:,:), matrixCOS2(:,:), matrixRES(:,:))
+    ! CALL subSUM(matrixSIN2(:,:), matrixCOS2(:,:), matrixRES(:,:))
 
     finishTimer = omp_get_wtime()
     WRITE(*,*) "TIME ", finishTimer - startTimer
@@ -56,7 +56,7 @@ PROGRAM MAIN
 
     CONTAINS
 
-    PURE ELEMENTAL SUBROUTINE subSUM(a, b, c)
+    PURE SUBROUTINE subSUM(a, b, c)
 
         IMPLICIT NONE
 
