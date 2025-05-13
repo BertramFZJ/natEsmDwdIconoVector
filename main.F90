@@ -1,3 +1,5 @@
+! RSE
+
 PROGRAM MAIN
 
     USE OMP_LIB
