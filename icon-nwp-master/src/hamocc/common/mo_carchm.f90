@@ -1,4 +1,14 @@
-! natESM focused module
+! ********************************************************************************************************
+! ********************************************************************************************************
+! ********************************************************************************************************
+!
+! Module updated during the natESM sprint #19
+! 1. Moved the declaration of the iteration counter niter_atgen inside the solve_at_general subroutine
+!    to prevent race conditions.
+!
+! ********************************************************************************************************
+! ********************************************************************************************************
+! ********************************************************************************************************
 
 ! ICON
 !
@@ -41,11 +51,6 @@ REAL(wp), PARAMETER :: pp_ln10 = 2.302585092994045684018_wp
 
 ! Maximum number of iterations for each method
 INTEGER, PARAMETER :: jp_maxniter_atgen    = 50
-
-! Bookkeeping variables for each method
-! - SOLVE_AT_GENERAL and SOLVE_AT_GENERAL_DNAD
-INTEGER :: niter_atgen    = jp_maxniter_atgen
-!$ACC DECLARE CREATE(niter_atgen)
 
 !===============================================================================
 
@@ -487,8 +492,9 @@ REAL(wp)  ::  zh_min, zh_max
 REAL(wp)  ::  zdelta, zh_delta
 REAL(wp)  ::  zeqn, zdeqndh, zeqn_absmin
 REAL(wp)  ::  aphscale
-LOGICAL        :: l_exitnow
+LOGICAL   ::  l_exitnow
 REAL(wp), PARAMETER :: pz_exp_threshold = 1.0_wp
+INTEGER   ::  niter_atgen
 
 ! TOTAL H+ scale: conversion factor for Htot = aphscale * Hfree
 aphscale = 1._wp + p_so4tot/Ks
