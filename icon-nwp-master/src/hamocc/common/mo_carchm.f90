@@ -7,6 +7,8 @@
 !    to prevent race conditions.
 ! 2. Unifying the processing of the surface layer and subsurface layers into a single loop within
 !    the subroutine calc_dissol.
+! 3. Changed the nesting order of the loops over layers and cells in the subroutine calc_dissol.
+!    OpenACC directives have been added, but the correctness of GPU offloading has not been verified.
 !
 ! ********************************************************************************************************
 ! ********************************************************************************************************
@@ -84,8 +86,8 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
   REAL(wp) :: supsat, undsa, dissol
   REAL(wp) :: supsatup,satdiff,depthdiff   ! needed to calculate depth of lysocline
-  INTEGER  :: iflag
-  LOGICAL :: lzacc
+  INTEGER  :: iflag(start_idx:end_idx), kpkeMAX
+  LOGICAL  :: lzacc
 
   CALL set_acc_host_or_device(lzacc, lacc)
 
@@ -96,16 +98,19 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
   !
   !*********************************************************************
 
+  iflag(:) = 0  
+  kpkeMAX = MAXVAL(klevs(start_idx:end_idx))
+
+  !$ACC ENTER DATA CREATE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
+  !$ACC UPDATE DEVICE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
+
   !  Dissolution in surface layer and subsurface layers
-  !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-  !$ACC LOOP GANG VECTOR
-  DO j= start_idx, end_idx
+  DO k = 1, kpkeMAX
 
-        iflag = 0
-        kpke=klevs(j)
+        !$ACC PARALLEL LOOP GANG VECTOR DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
+        DO j = start_idx, end_idx
 
-        !$ACC LOOP SEQ
-        DO k = 1, kpke
+            IF(k <= klevs(j)) THEN
 
             IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
 
@@ -126,15 +131,15 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
                 local_bgc_mem%bgctra(j,k,isco212) = local_bgc_mem%bgctra(j,k,isco212)+dissol
 
-                IF (supsat < 0._wp .AND. iflag == 0) THEN
+                IF (supsat < 0._wp .AND. iflag(j) == 0) THEN
 
                     IF(k == 1) THEN
-                        iflag = 1
+                        iflag(j) = 1
                         local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,1)
                     END IF
 
                     IF(k >  1) THEN
-                        iflag = 1
+                        iflag(j) = 1
                         supsatup  = local_bgc_mem%co3(j,k-1)-97._wp*local_bgc_mem%aksp(j,k-1)
                         depthdiff = 0.5_wp * (pddpo(j,k)+pddpo(j,k-1))
                         satdiff   = supsatup-supsat
@@ -143,11 +148,17 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
                 END IF
 
-            ENDIF   ! wet cell
+            END IF   ! wet cell
+
+            END IF
 
         END DO
+        !$ACC END PARALLEL LOOP
+
   END DO
-  !$ACC END PARALLEL
+
+  !$ACC EXIT DATA DELETE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
+  !$ACC WAIT(1) IF(lzacc)
 
 END SUBROUTINE
 
