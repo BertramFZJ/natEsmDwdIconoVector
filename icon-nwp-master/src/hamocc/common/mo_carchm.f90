@@ -90,6 +90,9 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
   INTEGER  :: iflag(start_idx:end_idx), kpkeMAX
   LOGICAL  :: lzacc
 
+  !! Vectorization local variables
+  LOGICAL :: vmask(start_idx:end_idx)
+
   CALL set_acc_host_or_device(lzacc, lacc)
 
   !
@@ -102,64 +105,60 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
   iflag(:) = 0  
   kpkeMAX = MAXVAL(klevs(start_idx:end_idx))
 
-  !$ACC ENTER DATA CREATE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
-  !$ACC UPDATE DEVICE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
-
   !  Dissolution in surface layer and subsurface layers
   DO k = 1, kpkeMAX
 
-        !$ACC PARALLEL LOOP GANG VECTOR DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-        DO j = start_idx, end_idx
+    DO j = start_idx, end_idx
+        IF( (k <= klevs(j)) .AND. (pddpo(j,k) > EPSILON(0.5_wp)) ) THEN
+            vmask(j) = .TRUE.
+        ELSE
+            vmask(j) = .FALSE.
+        END IF
+    END DO
 
-            IF(k <= klevs(j)) THEN
+    DO j = start_idx, end_idx
 
-            IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+        IF( vmask(j) ) THEN
 
-                CALL update_hi_sub(local_bgc_mem%hi(j,k), local_bgc_mem%bgctra(j,k,isco212), local_bgc_mem%ak13(j,k) , &
-                &    local_bgc_mem%ak23(j,k), local_bgc_mem%akw3(j,k),local_bgc_mem%aks3(j,k),local_bgc_mem%akf3(j,k), local_bgc_mem%aksi3(j,k),&
-                &    local_bgc_mem%ak1p3(j,k),local_bgc_mem%ak2p3(j,k),local_bgc_mem%ak3p3(j,k),psao(j,k) , local_bgc_mem%akb3(j,k), &
-                &    local_bgc_mem%bgctra(j,k,isilica),local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali), local_bgc_mem%hi(j,k) )
+            CALL update_hi_sub(local_bgc_mem%hi(j,k), local_bgc_mem%bgctra(j,k,isco212), local_bgc_mem%ak13(j,k) , &
+            &    local_bgc_mem%ak23(j,k), local_bgc_mem%akw3(j,k),local_bgc_mem%aks3(j,k),local_bgc_mem%akf3(j,k), local_bgc_mem%aksi3(j,k),&
+            &    local_bgc_mem%ak1p3(j,k),local_bgc_mem%ak2p3(j,k),local_bgc_mem%ak3p3(j,k),psao(j,k) , local_bgc_mem%akb3(j,k), &
+            &    local_bgc_mem%bgctra(j,k,isilica),local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali), local_bgc_mem%hi(j,k) )
 
-                local_bgc_mem%co3(j,k) = local_bgc_mem%bgctra(j,k,isco212)/(1._wp+local_bgc_mem%hi(j,k) * &
-                & (1._wp+local_bgc_mem%hi(j,k)/local_bgc_mem%ak13(j,k))/local_bgc_mem%ak23(j,k))
+            local_bgc_mem%co3(j,k) = local_bgc_mem%bgctra(j,k,isco212)/(1._wp+local_bgc_mem%hi(j,k) * &
+            & (1._wp+local_bgc_mem%hi(j,k)/local_bgc_mem%ak13(j,k))/local_bgc_mem%ak23(j,k))
 
-                supsat = local_bgc_mem%co3(j,k)-97._wp*local_bgc_mem%aksp(j,k)   ! 97. = 1./1.03e-2 (MEAN TOTAL [CA++] IN SEAWATER [kmol/m3])
-                undsa  = MAX(0._wp, -supsat)
+            supsat = local_bgc_mem%co3(j,k)-97._wp*local_bgc_mem%aksp(j,k)   ! 97. = 1./1.03e-2 (MEAN TOTAL [CA++] IN SEAWATER [kmol/m3])
+            undsa  = MAX(0._wp, -supsat)
 
-                dissol = MIN(undsa,dremcalc*local_bgc_mem%bgctra(j,k,icalc))
-                local_bgc_mem%bgctra(j,k,icalc)   = local_bgc_mem%bgctra(j,k,icalc)-dissol
-                local_bgc_mem%bgctra(j,k,ialkali) = local_bgc_mem%bgctra(j,k,ialkali)+2._wp*dissol
+            dissol = MIN(undsa,dremcalc*local_bgc_mem%bgctra(j,k,icalc))
+            local_bgc_mem%bgctra(j,k,icalc)   = local_bgc_mem%bgctra(j,k,icalc)-dissol
+            local_bgc_mem%bgctra(j,k,ialkali) = local_bgc_mem%bgctra(j,k,ialkali)+2._wp*dissol
 
-                local_bgc_mem%bgctra(j,k,isco212) = local_bgc_mem%bgctra(j,k,isco212)+dissol
+            local_bgc_mem%bgctra(j,k,isco212) = local_bgc_mem%bgctra(j,k,isco212)+dissol
 
-                IF (supsat < 0._wp .AND. iflag(j) == 0) THEN
+            IF (supsat < 0._wp .AND. iflag(j) == 0) THEN
 
-                    IF(k == 1) THEN
-                        iflag(j) = 1
-                        local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,1)
-                    END IF
-
-                    IF(k >  1) THEN
-                        iflag(j) = 1
-                        supsatup  = local_bgc_mem%co3(j,k-1)-97._wp*local_bgc_mem%aksp(j,k-1)
-                        depthdiff = 0.5_wp * (pddpo(j,k)+pddpo(j,k-1))
-                        satdiff   = supsatup-supsat
-                        local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,k-1)+depthdiff*(supsatup/satdiff)  ! depth of lysokline
-                    END IF
-
+                IF(k == 1) THEN
+                    iflag(j) = 1
+                    local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,1)
                 END IF
 
-            END IF   ! wet cell
+                IF(k >  1) THEN
+                    iflag(j) = 1
+                    supsatup  = local_bgc_mem%co3(j,k-1)-97._wp*local_bgc_mem%aksp(j,k-1)
+                    depthdiff = 0.5_wp * (pddpo(j,k)+pddpo(j,k-1))
+                    satdiff   = supsatup-supsat
+                    local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,k-1)+depthdiff*(supsatup/satdiff)  ! depth of lysokline
+                END IF
 
             END IF
 
-        END DO
-        !$ACC END PARALLEL LOOP
+        END IF   ! vmask(j) == .TRUE.
 
-  END DO
+    END DO ! j
 
-  !$ACC EXIT DATA DELETE(iflag(start_idx:end_idx)) ASYNC(1) IF(lzacc)
-  !$ACC WAIT(1) IF(lzacc)
+  END DO ! k
 
 END SUBROUTINE
 
