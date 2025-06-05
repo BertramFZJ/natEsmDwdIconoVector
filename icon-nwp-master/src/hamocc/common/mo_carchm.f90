@@ -125,6 +125,14 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
             &    local_bgc_mem%ak1p3(j,k),local_bgc_mem%ak2p3(j,k),local_bgc_mem%ak3p3(j,k),psao(j,k) , local_bgc_mem%akb3(j,k), &
             &    local_bgc_mem%bgctra(j,k,isilica),local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali), local_bgc_mem%hi(j,k) )
 
+        END IF ! vmask(j) == .TRUE.
+
+    END DO ! j
+
+    DO j = start_idx, end_idx
+
+        IF( vmask(j) ) THEN
+
             local_bgc_mem%co3(j,k) = local_bgc_mem%bgctra(j,k,isco212)/(1._wp+local_bgc_mem%hi(j,k) * &
             & (1._wp+local_bgc_mem%hi(j,k)/local_bgc_mem%ak13(j,k))/local_bgc_mem%ak23(j,k))
 
@@ -154,7 +162,7 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
             END IF
 
-        END IF   ! vmask(j) == .TRUE.
+        END IF ! vmask(j) == .TRUE.
 
     END DO ! j
 
