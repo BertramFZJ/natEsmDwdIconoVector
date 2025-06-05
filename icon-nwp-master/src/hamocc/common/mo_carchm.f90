@@ -42,9 +42,10 @@ USE mo_fortran_tools, ONLY  : set_acc_host_or_device
 
 IMPLICIT NONE
 
-PRIVATE:: anw_infsup, equation_at, ahini_for_at, solve_at_general
+PRIVATE :: anw_infsup, equation_at, ahini_for_at, solve_at_general
+PRIVATE :: update_hi_sub
 
-PUBLIC:: calc_dissol, update_hi
+PUBLIC  :: calc_dissol, update_hi
 
 !===============================================================================
 ! The Parameters needed for the mocsy Funtions/Subroutines
@@ -114,10 +115,10 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
             IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
 
-                local_bgc_mem%hi(j,k) = update_hi(local_bgc_mem%hi(j,k), local_bgc_mem%bgctra(j,k,isco212), local_bgc_mem%ak13(j,k) , &
-            &          local_bgc_mem%ak23(j,k), local_bgc_mem%akw3(j,k),local_bgc_mem%aks3(j,k),local_bgc_mem%akf3(j,k), local_bgc_mem%aksi3(j,k),&
-            &          local_bgc_mem%ak1p3(j,k),local_bgc_mem%ak2p3(j,k),local_bgc_mem%ak3p3(j,k),psao(j,k) , local_bgc_mem%akb3(j,k), &
-            &          local_bgc_mem%bgctra(j,k,isilica),local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali) )
+                CALL update_hi_sub(local_bgc_mem%hi(j,k), local_bgc_mem%bgctra(j,k,isco212), local_bgc_mem%ak13(j,k) , &
+                &    local_bgc_mem%ak23(j,k), local_bgc_mem%akw3(j,k),local_bgc_mem%aks3(j,k),local_bgc_mem%akf3(j,k), local_bgc_mem%aksi3(j,k),&
+                &    local_bgc_mem%ak1p3(j,k),local_bgc_mem%ak2p3(j,k),local_bgc_mem%ak3p3(j,k),psao(j,k) , local_bgc_mem%akb3(j,k), &
+                &    local_bgc_mem%bgctra(j,k,isilica),local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali), local_bgc_mem%hi(j,k) )
 
                 local_bgc_mem%co3(j,k) = local_bgc_mem%bgctra(j,k,isco212)/(1._wp+local_bgc_mem%hi(j,k) * &
                 & (1._wp+local_bgc_mem%hi(j,k)/local_bgc_mem%ak13(j,k))/local_bgc_mem%ak23(j,k))
@@ -163,27 +164,27 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 END SUBROUTINE
 
 
-FUNCTION update_hi(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,pt,alk) RESULT (h)
+FUNCTION update_hi(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,pt,alk) RESULT(h)
  !$ACC ROUTINE SEQ
  ! update hydrogen ion concentration
 
- REAL(wp) :: ah1, hi
- REAL(wp), INTENT(in):: ak1,ak2,akw,akb,aks,akf,aksi,c,ak1p,ak2p,&
-&                       ak3p,sit,pt,alk
+ REAL(wp), INTENT(IN)  :: hi, c, ak1, ak2, akw, aks, akf, aksi, ak1p, ak2p, ak3p, s, akb, sit, pt, alk
+ REAL(wp)              :: h
+ ! REAL(wp), INTENT(OUT) :: h
 
  ! LOCAL
- REAL(wp) :: bt, sti,ft, hso4,hf,hsi,hpo4,ab,aw,ac,ah2o,ah2,erel,h,s
- INTEGER:: iter,jit
+ REAL(wp) :: ah1, bt, sti, ft, hso4, hf, hsi, hpo4, ab, aw, ac, ah2o, ah2, erel
+ INTEGER  :: iter, jit
 
- bt  = rrrcl*s
+ bt    = rrrcl*s
 ! sulfate Morris & Riley (1966)
  sti   = 0.14_wp *  s*1.025_wp/1.80655_wp  / 96.062_wp
 ! fluoride Riley (1965)
  ft    = 0.000067_wp * s*1.025_wp/1.80655_wp / 18.9984_wp
 
-if (hion_solver == 0) THEN
+IF (hion_solver == 0) THEN
 
-  ah1=hi+epsilon(1._wp)
+  ah1 = hi + epsilon(1._wp)
   iter  = 0
 
   DO jit = 1,20
@@ -200,23 +201,89 @@ if (hion_solver == 0) THEN
      ah2  = 0.5_wp * ak1 / ac *( ( c - ac ) + ah2o )
      erel = ( ah2 - ah1 ) / ah2
 
-     if (abs( erel ).ge.5.e-5_wp) then
-         ah1 = ah2
-         iter = iter + 1
-       else
-         ah1 = ah2
-         exit
-      endif
+     IF (abs( erel ).ge.5.e-5_wp) THEN
+        ah1 = ah2
+        iter = iter + 1
+     ELSE
+        ah1 = ah2
+        EXIT
+     END IF
+
    ENDDO
-   if(ah1.gt.0._wp)h=max(1.e-20_wp,ah1)
 
-ELSE IF (hion_solver == 1) THEN
+   IF(ah1.gt.0._wp) THEN
+    h = max(1.e-20_wp,ah1)
+   ELSE
+    ! WARNING: Value is undefined
+   END IF
 
-  h=solve_at_general(alk,c,bt,pt,sit,sti,ft,ak1,ak2,akb,akw,aks,akf,ak1p,ak2p,ak3p,aksi,hi)
+END IF
 
-ENDIF
+IF (hion_solver == 1) THEN
+
+  h = solve_at_general(alk,c,bt,pt,sit,sti,ft,ak1,ak2,akb,akw,aks,akf,ak1p,ak2p,ak3p,aksi,hi)
+
+END IF
 
 END FUNCTION
+
+SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,pt,alk,h)
+!$ACC ROUTINE SEQ
+! update hydrogen ion concentration
+
+    REAL(wp), INTENT(IN)  :: hi, c, ak1, ak2, akw, aks, akf, aksi, ak1p, ak2p, ak3p, s, akb, sit, pt, alk
+    REAL(wp), INTENT(OUT) :: h
+
+    ! LOCAL
+    REAL(wp) :: ah1, bt, sti, ft, hso4, hf, hsi, hpo4, ab, aw, ac, ah2o, ah2, erel
+    INTEGER  :: iter, jit
+
+    bt    = rrrcl*s
+    ! sulfate Morris & Riley (1966)
+    sti   = 0.14_wp *  s*1.025_wp/1.80655_wp  / 96.062_wp
+    ! fluoride Riley (1965)
+    ft    = 0.000067_wp * s*1.025_wp/1.80655_wp / 18.9984_wp
+
+    IF (hion_solver == 0) THEN
+
+        ah1 = hi + epsilon(1._wp)
+        iter  = 0
+
+        DO jit = 1,20
+
+            hso4 = sti / ( 1._wp + aks / ( ah1 / ( 1._wp + sti / aks ) ) )
+            hf   = 1._wp / ( 1._wp + akf / ah1 )
+            hsi  = 1._wp/ ( 1._wp + ah1 / aksi )
+            hpo4 = ( ak1p * ak2p * ( ah1 + 2._wp * ak3p ) - ah1**3 ) /    &
+            &      ( ah1**3 + ak1p * ah1**2 + ak1p * ak2p * ah1 + ak1p * ak2p*ak3p )
+            ab   = bt / ( 1._wp + ah1 / akb )
+            aw   = akw / ah1 - ah1 / ( 1._wp + sti / aks )
+            ac   = alk + hso4 - sit * hsi - ab - aw + ft * hf - pt * hpo4
+            ah2o = SQRT( ( c - ac )**2 + 4._wp * ( ac * ak2 / ak1 ) * ( 2._wp*c - ac ) )
+            ah2  = 0.5_wp * ak1 / ac *( ( c - ac ) + ah2o )
+            erel = ( ah2 - ah1 ) / ah2
+
+            IF (abs( erel ).ge.5.e-5_wp) THEN
+                ah1 = ah2
+                iter = iter + 1
+            ELSE
+                ah1 = ah2
+                EXIT
+            END IF
+
+        ENDDO
+
+        IF(ah1.gt.0._wp) h = max(1.e-20_wp,ah1)
+
+    END IF
+
+    IF (hion_solver == 1) THEN
+
+        h = solve_at_general(alk,c,bt,pt,sit,sti,ft,ak1,ak2,akb,akw,aks,akf,ak1p,ak2p,ak3p,aksi,hi)
+
+    END IF
+
+END SUBROUTINE
 
 !===============================================================================
 ! Routines from the mocsy package
