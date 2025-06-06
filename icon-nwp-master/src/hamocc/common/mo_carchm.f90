@@ -820,6 +820,8 @@ REAL(wp), PARAMETER :: pz_exp_threshold = 1.0_wp
 
 INTEGER   ::  niter_atgen
 INTEGER   ::  j
+LOGICAL   ::  imask(start_idx:end_idx)
+INTEGER   ::  numActiveCells
 
 
 DO j = start_idx, end_idx
@@ -861,16 +863,27 @@ DO j = start_idx, end_idx
     END IF ! vmask
 END DO ! j
 
+niter_atgen        = 0                 ! Reset counters of iterations
 DO j = start_idx, end_idx
-    IF(vmask(j)) THEN
+    imask(j) = vmask(j)
+END DO
 
-    niter_atgen        = 0                 ! Reset counters of iterations
+DO ! Loop over iterations
 
-    DO
-        IF(niter_atgen >= jp_maxniter_atgen) THEN
-            zh(j) = -1._wp
-            EXIT
-        ENDIF
+    IF(niter_atgen >= jp_maxniter_atgen) THEN
+        DO j = start_idx, end_idx
+            IF(imask(j)) THEN
+                zh(j) = -1._wp
+            END IF
+        END DO
+        EXIT
+    ENDIF
+
+    ! Now determine the next iterate zh
+    niter_atgen = niter_atgen + 1
+
+    DO j = start_idx, end_idx
+    IF(imask(j)) THEN
 
         zh_prev(j) = zh(j)
         zeqn(j) = equation_at(p_alktot(j), zh(j), p_dictot(j), p_bortot(j),                              &
@@ -886,11 +899,9 @@ DO j = start_idx, end_idx
             zh_max(j) = zh_prev(j)
         ELSE
             ! zh is the root; unlikely but, one never knows
-            EXIT
+            imask(j) = .FALSE.
+            CYCLE
         ENDIF
-
-        ! Now determine the next iterate zh
-        niter_atgen = niter_atgen + 1
 
         IF(ABS(zeqn(j)) >= 0.5_wp*zeqn_absmin(j)) THEN
             zh(j) = SQRT(zh_max(j) * zh_min(j))
@@ -920,11 +931,12 @@ DO j = start_idx, end_idx
 
         l_exitnow(j) = (ABS(zh_lnfactor(j)) < pp_rdel_ah_target)
 
-        IF(l_exitnow(j)) EXIT
-    END DO ! iterative process
-
+        IF(l_exitnow(j)) THEN
+            imask(j) = .FALSE.
+        END IF
     END IF
-END DO ! j
+    END DO ! j
+END DO ! iterative process
 
 DO j = start_idx, end_idx
     IF(vmask(j)) THEN
