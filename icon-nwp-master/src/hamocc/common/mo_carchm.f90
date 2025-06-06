@@ -43,7 +43,7 @@ USE mo_fortran_tools, ONLY  : set_acc_host_or_device
 IMPLICIT NONE
 
 PRIVATE :: anw_infsup, equation_at, ahini_for_at, solve_at_general
-PRIVATE :: update_hi_sub
+PRIVATE :: update_hi_sub, solve_at_general_sub
 
 PUBLIC  :: calc_dissol, update_hi
 
@@ -276,6 +276,7 @@ SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,
     END DO
 
 #if 0
+
     bt    = rrrcl*s
     ! sulfate Morris & Riley (1966)
     sti   = 0.14_wp *  s*1.025_wp/1.80655_wp  / 96.062_wp
@@ -314,18 +315,34 @@ SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,
         IF(ah1.gt.0._wp) h = max(1.e-20_wp,ah1)
 
     END IF
+
+#else
+
+    IF (hion_solver == 0) THEN
+        WRITE(0,*) "ERROR: The program entered a code path that was not vectorized"
+        STOP
+    END IF
+
 #endif
 
     IF (hion_solver == 1) THEN
 
+#if 0
         DO j = start_idx, end_idx
 
             IF( vmask(j) ) THEN
-                h(j) = solve_at_general(alk(j),c(j),bt(j),pt(j),sit(j),sti(j),ft(j),ak1(j),ak2(j), &
-                &                       akb(j),akw(j),aks(j),akf(j),ak1p(j),ak2p(j),ak3p(j),aksi(j),hi(j))
+                CALL solve_at_general_sub(h(j), alk(j),c(j),bt(j),pt(j),sit(j),sti(j),ft(j),ak1(j),ak2(j), &
+                &                         akb(j),akw(j),aks(j),akf(j),ak1p(j),ak2p(j),ak3p(j),aksi(j),hi(j))
             END IF
 
         END DO
+#else
+        CALL solve_at_general_sub(start_idx, end_idx, vmask(start_idx:end_idx), h(start_idx:end_idx), &
+        & alk(start_idx:end_idx), c(start_idx:end_idx), bt(start_idx:end_idx), pt(start_idx:end_idx), &
+        & sit(start_idx:end_idx), sti(start_idx:end_idx), ft(start_idx:end_idx), ak1(start_idx:end_idx), ak2(start_idx:end_idx), &
+        & akb(start_idx:end_idx), akw(start_idx:end_idx), aks(start_idx:end_idx), akf(start_idx:end_idx), &
+        & ak1p(start_idx:end_idx), ak2p(start_idx:end_idx), ak3p(start_idx:end_idx), aksi(start_idx:end_idx), hi(start_idx:end_idx))
+#endif
 
     END IF
 
@@ -558,10 +575,10 @@ END SUBROUTINE ahini_for_at
 !===============================================================================
 
 FUNCTION solve_at_general(p_alktot, p_dictot, p_bortot,                       &
-                          p_po4tot, p_siltot,                                 &
-                          p_so4tot, p_flutot,                                 &
-                          K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi,         &
-                          p_hini,   p_val)
+    p_po4tot, p_siltot,                                 &
+    p_so4tot, p_flutot,                                 &
+    K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi,         &
+    p_hini,   p_val)
 !$ACC ROUTINE SEQ
 
 ! Purpose: Compute [H degree] ion concentration from sea-water ion concentrations,
@@ -604,30 +621,30 @@ INTEGER   ::  niter_atgen
 aphscale = 1._wp + p_so4tot/Ks
 
 IF(PRESENT(p_hini)) THEN
-   zh_ini = p_hini
+zh_ini = p_hini
 ELSE
-   CALL ahini_for_at(p_alktot, p_dictot, p_bortot, K1, K2, Kb, zh_ini)
+CALL ahini_for_at(p_alktot, p_dictot, p_bortot, K1, K2, Kb, zh_ini)
 ENDIF
 
- CALL anw_infsup(p_dictot, p_bortot,                                           &
-                 p_po4tot, p_siltot,                                           &
-                 p_so4tot, p_flutot,                                           &
-                 zalknw_inf, zalknw_sup)
+CALL anw_infsup(p_dictot, p_bortot,                                           &
+p_po4tot, p_siltot,                                           &
+p_so4tot, p_flutot,                                           &
+zalknw_inf, zalknw_sup)
 
 zdelta = (p_alktot-zalknw_inf)**2 + 4._wp*Kw/aphscale
 
 IF(p_alktot >= zalknw_inf) THEN
-   zh_min = 2._wp*Kw /( p_alktot-zalknw_inf + SQRT(zdelta) )
+zh_min = 2._wp*Kw /( p_alktot-zalknw_inf + SQRT(zdelta) )
 ELSE
-   zh_min = aphscale*(-(p_alktot-zalknw_inf) + SQRT(zdelta) ) / 2._wp
+zh_min = aphscale*(-(p_alktot-zalknw_inf) + SQRT(zdelta) ) / 2._wp
 ENDIF
 
 zdelta = (p_alktot-zalknw_sup)**2 + 4._wp*Kw/aphscale
 
 IF(p_alktot <= zalknw_sup) THEN
-   zh_max = aphscale*(-(p_alktot-zalknw_sup) + SQRT(zdelta) ) / 2._wp
+zh_max = aphscale*(-(p_alktot-zalknw_sup) + SQRT(zdelta) ) / 2._wp
 ELSE
-   zh_max = 2._wp*Kw /( p_alktot-zalknw_sup + SQRT(zdelta) )
+zh_max = 2._wp*Kw /( p_alktot-zalknw_sup + SQRT(zdelta) )
 ENDIF
 
 zh = MAX(MIN(zh_max, zh_ini), zh_min)
@@ -635,130 +652,298 @@ niter_atgen        = 0                 ! Reset counters of iterations
 zeqn_absmin        = HUGE(1._wp)
 
 DO
-   IF(niter_atgen >= jp_maxniter_atgen) THEN
-      zh = -1._wp
-      EXIT
-   ENDIF
+IF(niter_atgen >= jp_maxniter_atgen) THEN
+zh = -1._wp
+EXIT
+ENDIF
 
-   zh_prev = zh
-   zeqn = equation_at(p_alktot, zh,       p_dictot, p_bortot,                  &
-                      p_po4tot, p_siltot,                                      &
-                      p_so4tot, p_flutot,                                      &
-                      K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi,              &
-                      P_DERIVEQN = zdeqndh)
+zh_prev = zh
+zeqn = equation_at(p_alktot, zh,       p_dictot, p_bortot,                  &
+p_po4tot, p_siltot,                                      &
+p_so4tot, p_flutot,                                      &
+K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi,              &
+P_DERIVEQN = zdeqndh)
 
-   ! Adapt bracketing interval
-   IF(zeqn > 0._wp) THEN
-      zh_min = zh_prev
-   ELSEIF(zeqn < 0._wp) THEN
-      zh_max = zh_prev
-   ELSE
-      ! zh is the root; unlikely but, one never knows
-      EXIT
-   ENDIF
+! Adapt bracketing interval
+IF(zeqn > 0._wp) THEN
+zh_min = zh_prev
+ELSEIF(zeqn < 0._wp) THEN
+zh_max = zh_prev
+ELSE
+! zh is the root; unlikely but, one never knows
+EXIT
+ENDIF
 
-   ! Now determine the next iterate zh
-   niter_atgen = niter_atgen + 1
+! Now determine the next iterate zh
+niter_atgen = niter_atgen + 1
 
-   IF(ABS(zeqn) >= 0.5_wp*zeqn_absmin) THEN
-      ! if the function evaluation at the current point is
-      ! not decreasing faster than with a bisection step (at least linearly)
-      ! in absolute value take one bisection step on [ph_min, ph_max]
-      ! ph_new = (ph_min + ph_max)/2d0
-      !
-      ! In terms of [H]_new:
-      ! [H]_new = 10**(-ph_new)
-      !         = 10**(-(ph_min + ph_max)/2d0)
-      !         = SQRT(10**(-(ph_min + phmax)))
-      !         = SQRT(zh_max * zh_min)
-      zh = SQRT(zh_max * zh_min)
-      zh_lnfactor = (zh - zh_prev)/zh_prev ! Required to test convergence below
-   ELSE
-      ! dzeqn/dpH = dzeqn/d[H] * d[H]/dpH
-      !           = -zdeqndh * LOG(10) * [H]
-      ! \Delta pH = -zeqn/(zdeqndh*d[H]/dpH) = zeqn/(zdeqndh*[H]*LOG(10))
-      !
-      ! pH_new = pH_old + \deltapH
-      !
-      ! [H]_new = 10**(-pH_new)
-      !         = 10**(-pH_old - \Delta pH)
-      !         = [H]_old * 10**(-zeqn/(zdeqndh*[H]_old*LOG(10)))
-      !         = [H]_old * EXP(-LOG(10)*zeqn/(zdeqndh*[H]_old*LOG(10)))
-      !         = [H]_old * EXP(-zeqn/(zdeqndh*[H]_old))
+IF(ABS(zeqn) >= 0.5_wp*zeqn_absmin) THEN
+! if the function evaluation at the current point is
+! not decreasing faster than with a bisection step (at least linearly)
+! in absolute value take one bisection step on [ph_min, ph_max]
+! ph_new = (ph_min + ph_max)/2d0
+!
+! In terms of [H]_new:
+! [H]_new = 10**(-ph_new)
+!         = 10**(-(ph_min + ph_max)/2d0)
+!         = SQRT(10**(-(ph_min + phmax)))
+!         = SQRT(zh_max * zh_min)
+zh = SQRT(zh_max * zh_min)
+zh_lnfactor = (zh - zh_prev)/zh_prev ! Required to test convergence below
+ELSE
+! dzeqn/dpH = dzeqn/d[H] * d[H]/dpH
+!           = -zdeqndh * LOG(10) * [H]
+! \Delta pH = -zeqn/(zdeqndh*d[H]/dpH) = zeqn/(zdeqndh*[H]*LOG(10))
+!
+! pH_new = pH_old + \deltapH
+!
+! [H]_new = 10**(-pH_new)
+!         = 10**(-pH_old - \Delta pH)
+!         = [H]_old * 10**(-zeqn/(zdeqndh*[H]_old*LOG(10)))
+!         = [H]_old * EXP(-LOG(10)*zeqn/(zdeqndh*[H]_old*LOG(10)))
+!         = [H]_old * EXP(-zeqn/(zdeqndh*[H]_old))
 
-      zh_lnfactor = -zeqn/(zdeqndh*zh_prev)
+zh_lnfactor = -zeqn/(zdeqndh*zh_prev)
 
-      IF(ABS(zh_lnfactor) > pz_exp_threshold) THEN
-         zh          = zh_prev*EXP(zh_lnfactor)
-      ELSE
-         zh_delta    = zh_lnfactor*zh_prev
-         zh          = zh_prev + zh_delta
-      ENDIF
+IF(ABS(zh_lnfactor) > pz_exp_threshold) THEN
+zh          = zh_prev*EXP(zh_lnfactor)
+ELSE
+zh_delta    = zh_lnfactor*zh_prev
+zh          = zh_prev + zh_delta
+ENDIF
 
-      IF( zh < zh_min ) THEN
-         ! if [H]_new < [H]_min
-         ! i.e., if ph_new > ph_max then
-         ! take one bisection step on [ph_prev, ph_max]
-         ! ph_new = (ph_prev + ph_max)/2d0
-         ! In terms of [H]_new:
-         ! [H]_new = 10**(-ph_new)
-         !         = 10**(-(ph_prev + ph_max)/2d0)
-         !         = SQRT(10**(-(ph_prev + phmax)))
-         !         = SQRT([H]_old*10**(-ph_max))
-         !         = SQRT([H]_old * zh_min)
-         zh                = SQRT(zh_prev * zh_min)
-         zh_lnfactor       = (zh - zh_prev)/zh_prev ! Required to test convergence below
-      ENDIF
+IF( zh < zh_min ) THEN
+! if [H]_new < [H]_min
+! i.e., if ph_new > ph_max then
+! take one bisection step on [ph_prev, ph_max]
+! ph_new = (ph_prev + ph_max)/2d0
+! In terms of [H]_new:
+! [H]_new = 10**(-ph_new)
+!         = 10**(-(ph_prev + ph_max)/2d0)
+!         = SQRT(10**(-(ph_prev + phmax)))
+!         = SQRT([H]_old*10**(-ph_max))
+!         = SQRT([H]_old * zh_min)
+zh                = SQRT(zh_prev * zh_min)
+zh_lnfactor       = (zh - zh_prev)/zh_prev ! Required to test convergence below
+ENDIF
 
-      IF( zh > zh_max ) THEN
-         ! if [H]_new > [H]_max
-         ! i.e., if ph_new < ph_min, then
-         ! take one bisection step on [ph_min, ph_prev]
-         ! ph_new = (ph_prev + ph_min)/2d0
-         ! In terms of [H]_new:
-         ! [H]_new = 10**(-ph_new)
-         !         = 10**(-(ph_prev + ph_min)/2d0)
-         !         = SQRT(10**(-(ph_prev + ph_min)))
-         !         = SQRT([H]_old*10**(-ph_min))
-         !         = SQRT([H]_old * zhmax)
-         zh                = SQRT(zh_prev * zh_max)
-         zh_lnfactor       = (zh - zh_prev)/zh_prev ! Required to test convergence below
-      ENDIF
-   ENDIF
+IF( zh > zh_max ) THEN
+! if [H]_new > [H]_max
+! i.e., if ph_new < ph_min, then
+! take one bisection step on [ph_min, ph_prev]
+! ph_new = (ph_prev + ph_min)/2d0
+! In terms of [H]_new:
+! [H]_new = 10**(-ph_new)
+!         = 10**(-(ph_prev + ph_min)/2d0)
+!         = SQRT(10**(-(ph_prev + ph_min)))
+!         = SQRT([H]_old*10**(-ph_min))
+!         = SQRT([H]_old * zhmax)
+zh                = SQRT(zh_prev * zh_max)
+zh_lnfactor       = (zh - zh_prev)/zh_prev ! Required to test convergence below
+ENDIF
+ENDIF
 
-   zeqn_absmin = MIN( ABS(zeqn), zeqn_absmin)
+zeqn_absmin = MIN( ABS(zeqn), zeqn_absmin)
 
-   ! Stop iterations once |\delta{[H]}/[H]| < rdel
-   ! <=> |(zh - zh_prev)/zh_prev| = |EXP(-zeqn/(zdeqndh*zh_prev)) -1| < rdel
-   ! |EXP(-zeqn/(zdeqndh*zh_prev)) -1| ~ |zeqn/(zdeqndh*zh_prev)|
+! Stop iterations once |\delta{[H]}/[H]| < rdel
+! <=> |(zh - zh_prev)/zh_prev| = |EXP(-zeqn/(zdeqndh*zh_prev)) -1| < rdel
+! |EXP(-zeqn/(zdeqndh*zh_prev)) -1| ~ |zeqn/(zdeqndh*zh_prev)|
 
-   ! Alternatively:
-   ! |\Delta pH| = |zeqn/(zdeqndh*zh_prev*LOG(10))|
-   !             ~ 1/LOG(10) * |\Delta [H]|/[H]
-   !             < 1/LOG(10) * rdel
+! Alternatively:
+! |\Delta pH| = |zeqn/(zdeqndh*zh_prev*LOG(10))|
+!             ~ 1/LOG(10) * |\Delta [H]|/[H]
+!             < 1/LOG(10) * rdel
 
-   ! Hence |zeqn/(zdeqndh*zh)| < rdel
+! Hence |zeqn/(zdeqndh*zh)| < rdel
 
-   ! rdel <-- pp_rdel_ah_target
+! rdel <-- pp_rdel_ah_target
 
-   l_exitnow = (ABS(zh_lnfactor) < pp_rdel_ah_target)
+l_exitnow = (ABS(zh_lnfactor) < pp_rdel_ah_target)
 
-   IF(l_exitnow) EXIT
+IF(l_exitnow) EXIT
 ENDDO
 
 solve_at_general = zh
 
 IF(PRESENT(p_val)) THEN
-   IF(zh > 0._wp) THEN
-      p_val = equation_at(p_alktot, zh,       p_dictot, p_bortot,              &
-                          p_po4tot, p_siltot,                                  &
-                          p_so4tot, p_flutot,                                  &
-                          K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi)
-   ELSE
-      p_val = HUGE(1._wp)
-   ENDIF
+IF(zh > 0._wp) THEN
+p_val = equation_at(p_alktot, zh,       p_dictot, p_bortot,              &
+    p_po4tot, p_siltot,                                  &
+    p_so4tot, p_flutot,                                  &
+    K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi)
+ELSE
+p_val = HUGE(1._wp)
+ENDIF
 ENDIF
 RETURN
 END FUNCTION solve_at_general
+
+SUBROUTINE solve_at_general_sub(start_idx, end_idx, vmask, resSAG,                  &
+                                p_alktot, p_dictot, p_bortot,                       &
+                                p_po4tot, p_siltot,                                 &
+                                p_so4tot, p_flutot,                                 &
+                                K1, K2, Kb, Kw, Ks, Kf, K1p, K2p, K3p, Ksi,         &
+                                p_hini,   p_val)
+!$ACC ROUTINE SEQ
+
+IMPLICIT NONE
+
+! Argument variables
+!--------------------
+INTEGER, INTENT(IN)             :: start_idx, end_idx
+LOGICAL, INTENT(IN)             :: vmask(start_idx:end_idx)
+REAL(wp), INTENT(OUT)           :: resSAG(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_alktot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_dictot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_bortot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_po4tot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_siltot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_so4tot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: p_flutot(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: K1(start_idx:end_idx), K2(start_idx:end_idx), Kb(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: Kw(start_idx:end_idx), Ks(start_idx:end_idx), Kf(start_idx:end_idx)
+REAL(wp), INTENT(IN)            :: K1p(start_idx:end_idx), K2p(start_idx:end_idx), K3p(start_idx:end_idx), Ksi(start_idx:end_idx)
+
+REAL(wp), INTENT(IN), OPTIONAL  :: p_hini(start_idx:end_idx)
+REAL(wp), INTENT(OUT), OPTIONAL :: p_val(start_idx:end_idx)
+
+! Local variables
+!-----------------
+REAL(wp)  ::  zh_ini(start_idx:end_idx), zh(start_idx:end_idx), zh_prev(start_idx:end_idx), zh_lnfactor(start_idx:end_idx)
+REAL(wp)  ::  zalknw_inf(start_idx:end_idx), zalknw_sup(start_idx:end_idx)
+REAL(wp)  ::  zh_min(start_idx:end_idx), zh_max(start_idx:end_idx)
+REAL(wp)  ::  zdelta(start_idx:end_idx), zh_delta(start_idx:end_idx)
+REAL(wp)  ::  zeqn(start_idx:end_idx), zdeqndh(start_idx:end_idx), zeqn_absmin(start_idx:end_idx)
+REAL(wp)  ::  aphscale(start_idx:end_idx)
+LOGICAL   ::  l_exitnow(start_idx:end_idx)
+REAL(wp), PARAMETER :: pz_exp_threshold = 1.0_wp
+
+INTEGER   ::  niter_atgen
+INTEGER   ::  j
+
+
+DO j = start_idx, end_idx
+    IF(vmask(j)) THEN
+
+        aphscale(j) = 1._wp + p_so4tot(j)/Ks(j)
+
+        IF(PRESENT(p_hini)) THEN
+            zh_ini(j) = p_hini(j)
+        ELSE
+            CALL ahini_for_at(p_alktot(j), p_dictot(j), p_bortot(j), K1(j), K2(j), Kb(j), zh_ini(j))
+        ENDIF
+
+        CALL anw_infsup(p_dictot(j), p_bortot(j),                                           &
+                        p_po4tot(j), p_siltot(j),                                           &
+                        p_so4tot(j), p_flutot(j),                                           &
+                        zalknw_inf(j), zalknw_sup(j))
+
+        zdelta(j) = (p_alktot(j)-zalknw_inf(j))**2 + 4._wp*Kw(j)/aphscale(j)
+
+        IF(p_alktot(j) >= zalknw_inf(j)) THEN
+            zh_min(j) = 2._wp*Kw(j) /( p_alktot(j)-zalknw_inf(j) + SQRT(zdelta(j)) )
+        ELSE
+            zh_min(j) = aphscale(j)*(-(p_alktot(j)-zalknw_inf(j)) + SQRT(zdelta(j)) ) / 2._wp
+        ENDIF
+
+        zdelta(j) = (p_alktot(j)-zalknw_sup(j))**2 + 4._wp*Kw(j)/aphscale(j)
+
+        IF(p_alktot(j) <= zalknw_sup(j)) THEN
+            zh_max(j) = aphscale(j)*(-(p_alktot(j)-zalknw_sup(j)) + SQRT(zdelta(j)) ) / 2._wp
+        ELSE
+            zh_max(j) = 2._wp*Kw(j) /( p_alktot(j)-zalknw_sup(j) + SQRT(zdelta(j)) )
+        ENDIF
+
+        zh(j) = MAX(MIN(zh_max(j), zh_ini(j)), zh_min(j))
+
+        zeqn_absmin(j)        = HUGE(1._wp)
+
+    END IF ! vmask
+END DO ! j
+
+DO j = start_idx, end_idx
+    IF(vmask(j)) THEN
+
+    niter_atgen        = 0                 ! Reset counters of iterations
+
+    DO
+        IF(niter_atgen >= jp_maxniter_atgen) THEN
+            zh(j) = -1._wp
+            EXIT
+        ENDIF
+
+        zh_prev(j) = zh(j)
+        zeqn(j) = equation_at(p_alktot(j), zh(j), p_dictot(j), p_bortot(j),                              &
+                              p_po4tot(j), p_siltot(j),                                                  &
+                              p_so4tot(j), p_flutot(j),                                                  &
+                              K1(j), K2(j), Kb(j), Kw(j), Ks(j), Kf(j), K1p(j), K2p(j), K3p(j), Ksi(j),  &
+                              P_DERIVEQN = zdeqndh(j))
+
+        ! Adapt bracketing interval
+        IF(zeqn(j) > 0._wp) THEN
+            zh_min(j) = zh_prev(j)
+        ELSEIF(zeqn(j) < 0._wp) THEN
+            zh_max(j) = zh_prev(j)
+        ELSE
+            ! zh is the root; unlikely but, one never knows
+            EXIT
+        ENDIF
+
+        ! Now determine the next iterate zh
+        niter_atgen = niter_atgen + 1
+
+        IF(ABS(zeqn(j)) >= 0.5_wp*zeqn_absmin(j)) THEN
+            zh(j) = SQRT(zh_max(j) * zh_min(j))
+            zh_lnfactor(j) = (zh(j) - zh_prev(j))/zh_prev(j) ! Required to test convergence below
+        ELSE
+            zh_lnfactor(j) = -zeqn(j)/(zdeqndh(j)*zh_prev(j))
+
+            IF(ABS(zh_lnfactor(j)) > pz_exp_threshold) THEN
+                zh(j)          = zh_prev(j)*EXP(zh_lnfactor(j))
+            ELSE
+                zh_delta(j)    = zh_lnfactor(j)*zh_prev(j)
+                zh(j)          = zh_prev(j) + zh_delta(j)
+            ENDIF
+
+            IF( zh(j) < zh_min(j) ) THEN
+                zh(j)                = SQRT(zh_prev(j) * zh_min(j))
+                zh_lnfactor(j)       = (zh(j) - zh_prev(j))/zh_prev(j) ! Required to test convergence below
+            ENDIF
+
+            IF( zh(j) > zh_max(j) ) THEN
+                zh(j)                = SQRT(zh_prev(j) * zh_max(j))
+                zh_lnfactor(j)       = (zh(j) - zh_prev(j))/zh_prev(j) ! Required to test convergence below
+            ENDIF
+        ENDIF
+
+        zeqn_absmin(j) = MIN( ABS(zeqn(j)), zeqn_absmin(j))
+
+        l_exitnow(j) = (ABS(zh_lnfactor(j)) < pp_rdel_ah_target)
+
+        IF(l_exitnow(j)) EXIT
+    END DO ! iterative process
+
+    END IF
+END DO ! j
+
+DO j = start_idx, end_idx
+    IF(vmask(j)) THEN
+
+        resSAG(j) = zh(j)
+
+        IF(PRESENT(p_val)) THEN
+            IF(zh(j) > 0._wp) THEN
+                p_val(j) = equation_at(p_alktot(j), zh(j), p_dictot(j), p_bortot(j),                           &
+                                       p_po4tot(j), p_siltot(j),                                               &
+                                       p_so4tot(j), p_flutot(j),                                               &
+                                       K1(j), K2(j), Kb(j), Kw(j), Ks(j), Kf(j), K1p(j), K2p(j), K3p(j), Ksi(j))
+            ELSE
+                p_val(j) = HUGE(1._wp)
+            ENDIF
+        ENDIF
+    END IF
+END DO
+
+END SUBROUTINE solve_at_general_sub
 
 END MODULE
