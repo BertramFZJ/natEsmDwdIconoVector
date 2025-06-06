@@ -116,6 +116,7 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
         END IF
     END DO
 
+#if 0
     DO j = start_idx, end_idx
 
         IF( vmask(j) ) THEN
@@ -128,6 +129,18 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
         END IF ! vmask(j) == .TRUE.
 
     END DO ! j
+#else
+
+    CALL update_hi_sub(local_bgc_mem%hi(start_idx:end_idx,k), local_bgc_mem%bgctra(start_idx:end_idx,k,isco212), &
+    & local_bgc_mem%ak13(start_idx:end_idx,k), local_bgc_mem%ak23(start_idx:end_idx,k), &
+    & local_bgc_mem%akw3(start_idx:end_idx,k), local_bgc_mem%aks3(start_idx:end_idx,k), &
+    & local_bgc_mem%akf3(start_idx:end_idx,k), local_bgc_mem%aksi3(start_idx:end_idx,k), &
+    & local_bgc_mem%ak1p3(start_idx:end_idx,k), local_bgc_mem%ak2p3(start_idx:end_idx,k), local_bgc_mem%ak3p3(start_idx:end_idx,k), &
+    & psao(start_idx:end_idx,k), local_bgc_mem%akb3(start_idx:end_idx,k), local_bgc_mem%bgctra(start_idx:end_idx,k,isilica), &
+    & local_bgc_mem%bgctra(start_idx:end_idx,k,iphosph), local_bgc_mem%bgctra(start_idx:end_idx,k,ialkali), &
+    & local_bgc_mem%hi(start_idx:end_idx,k), start_idx, end_idx, vmask(start_idx:end_idx))
+
+#endif
 
     DO j = start_idx, end_idx
 
@@ -234,17 +247,35 @@ END IF
 
 END FUNCTION
 
-SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,pt,alk,h)
+SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,pt,alk,h,start_idx,end_idx,vmask)
 !$ACC ROUTINE SEQ
 ! update hydrogen ion concentration
 
-    REAL(wp), INTENT(IN)  :: hi, c, ak1, ak2, akw, aks, akf, aksi, ak1p, ak2p, ak3p, s, akb, sit, pt, alk
-    REAL(wp), INTENT(OUT) :: h
+    INTEGER, INTENT(IN)   :: start_idx, end_idx
+    REAL(wp), INTENT(IN)  :: hi(start_idx:end_idx), c(start_idx:end_idx), ak1(start_idx:end_idx), ak2(start_idx:end_idx)
+    REAL(wp), INTENT(IN)  :: akw(start_idx:end_idx), aks(start_idx:end_idx), akf(start_idx:end_idx), aksi(start_idx:end_idx)
+    REAL(wp), INTENT(IN)  :: ak1p(start_idx:end_idx), ak2p(start_idx:end_idx), ak3p(start_idx:end_idx), s(start_idx:end_idx)
+    REAL(wp), INTENT(IN)  :: akb(start_idx:end_idx), sit(start_idx:end_idx), pt(start_idx:end_idx), alk(start_idx:end_idx)
+    LOGICAL, INTENT(IN)   :: vmask(start_idx:end_idx)
+    REAL(wp), INTENT(OUT) :: h(start_idx:end_idx)
 
     ! LOCAL
-    REAL(wp) :: ah1, bt, sti, ft, hso4, hf, hsi, hpo4, ab, aw, ac, ah2o, ah2, erel
-    INTEGER  :: iter, jit
+    REAL(wp) :: bt(start_idx:end_idx), sti(start_idx:end_idx), ft(start_idx:end_idx)
+    INTEGER  :: j
 
+    DO j = start_idx, end_idx
+
+        IF( vmask(j) ) THEN
+            bt(j)    = rrrcl*s(j)
+            ! sulfate Morris & Riley (1966)
+            sti(j)   = 0.14_wp *  s(j)*1.025_wp/1.80655_wp  / 96.062_wp
+            ! fluoride Riley (1965)
+            ft(j)    = 0.000067_wp * s(j)*1.025_wp/1.80655_wp / 18.9984_wp
+        END IF
+
+    END DO
+
+#if 0
     bt    = rrrcl*s
     ! sulfate Morris & Riley (1966)
     sti   = 0.14_wp *  s*1.025_wp/1.80655_wp  / 96.062_wp
@@ -283,10 +314,18 @@ SUBROUTINE update_hi_sub(hi,c,ak1,ak2,akw,aks,akf,aksi,ak1p,ak2p,ak3p,s,akb,sit,
         IF(ah1.gt.0._wp) h = max(1.e-20_wp,ah1)
 
     END IF
+#endif
 
     IF (hion_solver == 1) THEN
 
-        h = solve_at_general(alk,c,bt,pt,sit,sti,ft,ak1,ak2,akb,akw,aks,akf,ak1p,ak2p,ak3p,aksi,hi)
+        DO j = start_idx, end_idx
+
+            IF( vmask(j) ) THEN
+                h(j) = solve_at_general(alk(j),c(j),bt(j),pt(j),sit(j),sti(j),ft(j),ak1(j),ak2(j), &
+                &                       akb(j),akw(j),aks(j),akf(j),ak1p(j),ak2p(j),ak3p(j),aksi(j),hi(j))
+            END IF
+
+        END DO
 
     END IF
 
