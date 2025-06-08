@@ -863,6 +863,7 @@ DO j = start_idx, end_idx
     END IF ! vmask
 END DO ! j
 
+numActiveCells     = 0
 niter_atgen        = 0                 ! Reset counters of iterations
 DO j = start_idx, end_idx
     imask(j) = vmask(j)
@@ -879,6 +880,7 @@ DO ! Loop over iterations
         EXIT
     ENDIF
 
+    numActiveCells = 0
     ! Now determine the next iterate zh
     niter_atgen = niter_atgen + 1
 
@@ -933,9 +935,15 @@ DO ! Loop over iterations
 
         IF(l_exitnow(j)) THEN
             imask(j) = .FALSE.
+        ELSE
+            numActiveCells = numActiveCells + 1
         END IF
     END IF
     END DO ! j
+
+    IF(numActiveCells == 0) THEN
+        EXIT
+    END IF
 END DO ! iterative process
 
 DO j = start_idx, end_idx
