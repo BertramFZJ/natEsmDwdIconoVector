@@ -106,6 +106,7 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
   kpkeMAX = MAXVAL(klevs(start_idx:end_idx))
 
   !  Dissolution in surface layer and subsurface layers
+  !NEC$ nomove
   DO k = 1, kpkeMAX
 
     DO j = start_idx, end_idx
@@ -142,6 +143,7 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
 #endif
 
+    !NEC$ nomove
     DO j = start_idx, end_idx
 
         IF( vmask(j) ) THEN
@@ -158,21 +160,17 @@ SUBROUTINE calc_dissol (local_bgc_mem, start_idx, end_idx, klevs, pddpo, psao, p
 
             local_bgc_mem%bgctra(j,k,isco212) = local_bgc_mem%bgctra(j,k,isco212)+dissol
 
-            IF (supsat < 0._wp .AND. iflag(j) == 0) THEN
+            IF (k == 1 .AND. supsat < 0._wp .AND. iflag(j) == 0) THEN
+                iflag(j) = 1
+                local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,1)
+            END IF
 
-                IF(k == 1) THEN
-                    iflag(j) = 1
-                    local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,1)
-                END IF
-
-                IF(k >  1) THEN
-                    iflag(j) = 1
-                    supsatup  = local_bgc_mem%co3(j,k-1)-97._wp*local_bgc_mem%aksp(j,k-1)
-                    depthdiff = 0.5_wp * (pddpo(j,k)+pddpo(j,k-1))
-                    satdiff   = supsatup-supsat
-                    local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,k-1)+depthdiff*(supsatup/satdiff)  ! depth of lysokline
-                END IF
-
+            IF (k >  1 .AND. supsat < 0._wp .AND. iflag(j) == 0) THEN
+                iflag(j) = 1
+                supsatup  = local_bgc_mem%co3(j,k-1)-97._wp*local_bgc_mem%aksp(j,k-1)
+                depthdiff = 0.5_wp * (pddpo(j,k)+pddpo(j,k-1))
+                satdiff   = supsatup-supsat
+                local_bgc_mem%bgcflux(j,klysocl) = ptiestu(j,k-1)+depthdiff*(supsatup/satdiff)  ! depth of lysokline
             END IF
 
         END IF ! vmask(j) == .TRUE.
@@ -651,6 +649,7 @@ zh = MAX(MIN(zh_max, zh_ini), zh_min)
 niter_atgen        = 0                 ! Reset counters of iterations
 zeqn_absmin        = HUGE(1._wp)
 
+!NEC$ nomove
 DO
 IF(niter_atgen >= jp_maxniter_atgen) THEN
 zh = -1._wp
