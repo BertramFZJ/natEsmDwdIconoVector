@@ -879,7 +879,6 @@ DO ! Loop over iterations
         EXIT
     ENDIF
 
-    numActiveCells = 0
     ! Now determine the next iterate zh
     niter_atgen = niter_atgen + 1
 
@@ -934,11 +933,16 @@ DO ! Loop over iterations
 
         IF(l_exitnow(j)) THEN
             imask(j) = .FALSE.
-        ELSE
-            numActiveCells = numActiveCells + 1
         END IF
     END IF
     END DO ! j
+
+    numActiveCells = 0
+    DO j = start_idx, end_idx
+        IF(imask(j)) THEN
+            numActiveCells = numActiveCells + 1
+        END IF
+    END DO
 
     IF(numActiveCells == 0) THEN
         EXIT
