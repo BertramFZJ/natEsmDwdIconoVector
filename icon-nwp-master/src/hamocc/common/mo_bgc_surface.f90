@@ -244,134 +244,146 @@ SUBROUTINE gasex (local_bgc_mem, start_idx,end_idx, pddpo, za, ptho, psao,  &
 
   !! Local variables
 
-  INTEGER :: j, k
+  INTEGER :: j
 
-  REAL(wp) :: fluxd,fluxu
-  REAL(wp) :: kwco2,kwo2, kwdms, kwn2o
-  REAL(wp) :: scco2,sco2, scdms, scn2o
-  REAL(wp) :: oxflux,niflux,nlaughflux, dmsflux
-  REAL(wp) :: ato2, atn2, atco2,pco2
-  REAL(wp) :: thickness
+  REAL(wp) :: fluxd, fluxu
+  REAL(wp) :: kwco2(start_idx:end_idx), kwo2, kwdms, kwn2o
+  REAL(wp) :: scco2, sco2, scdms, scn2o
+  REAL(wp) :: oxflux, niflux, nlaughflux, dmsflux
+  REAL(wp) :: ato2, atn2, atco2(start_idx:end_idx), pco2
+  REAL(wp) :: thickness(start_idx:end_idx)
   LOGICAL :: lzacc
 
   ! for extended N-cycle
-  REAL (wp):: kgammo,kh_nh3i,kh_nh3,pka_nh3,ka_nh3,nh3sw,ammoflux
-  REAL (wp):: ecoef,tabs
+  REAL (wp):: kgammo, kh_nh3i, kh_nh3, pka_nh3, ka_nh3, nh3sw, ammoflux
+  REAL (wp):: ecoef, tabs
+
+  !! Vectorization local variables
+  LOGICAL :: vmask(start_idx:end_idx)
 
   CALL set_acc_host_or_device(lzacc, lacc)
-
 
   !
   !---------------------------------------------------------------------
   !
 
-  k = 1      ! surface layer
-  !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-  !$ACC LOOP GANG VECTOR
+  !NEC$ nomove
+  DO j = start_idx, end_idx
+    IF( pddpo(j, 1) .GT. EPSILON(0.5_wp) ) THEN
+        vmask(j) = .TRUE.
+    ELSE
+        vmask(j) = .FALSE.
+    END IF
+  END DO
+
+  !NEC$ nomove
   DO j = start_idx, end_idx
 
+    IF( vmask(j) ) THEN
 
-        IF (pddpo(j, 1) .GT. EPSILON(0.5_wp)) THEN
+        !*********************************************************************
+        !
+        !  Compute the Schmidt number of CO2 in seawater and the transfer
+        !  (piston) velocity using the formulation presented in
+        !   Wanninkhof 2014
+        !*********************************************************************
 
+        scco2 = 2116.8_wp - 136.25_wp*ptho(j,1) + 4.7353_wp*ptho(j,1)**2 &
+        &   - 0.092307_wp*ptho(j,1)**3 + 0.0007555_wp*ptho(j,1)**4
 
-           !*********************************************************************
-           !
-           !  Compute the Schmidt number of CO2 in seawater and the transfer
-           !  (piston) velocity using the formulation presented in
-           !   Wanninkhof 2014
-           !*********************************************************************
+        sco2 =  1920.4_wp - 135.6_wp*ptho(j,1)  + 5.2122_wp*ptho(j,1)**2 &
+        & - 0.10939_wp*ptho(j,1)**3 + 0.00093777_wp*ptho(j,1)**4
 
-           scco2 = 2116.8_wp - 136.25_wp*ptho(j,1) + 4.7353_wp*ptho(j,1)**2 &
-                &   - 0.092307_wp*ptho(j,1)**3 + 0.0007555_wp*ptho(j,1)**4
+        scn2o =  2356.2_wp - 166.38_wp*ptho(j,1)  + 6.3952_wp*ptho(j,1)**2 &
+        & - 0.13422_wp*ptho(j,1)**3 + 0.0011506_wp*ptho(j,1)**4
 
-           sco2 =  1920.4_wp - 135.6_wp*ptho(j,1)  + 5.2122_wp*ptho(j,1)**2 &
-               & - 0.10939_wp*ptho(j,1)**3 + 0.00093777_wp*ptho(j,1)**4
+        scdms =  2855.7_wp - 177.63_wp*ptho(j,1)  + 6.0438_wp*ptho(j,1)**2 &
+        & - 0.11645_wp*ptho(j,1)**3 + 0.00094743_wp*ptho(j,1)**4
 
-           scn2o =  2356.2_wp - 166.38_wp*ptho(j,1)  + 6.3952_wp*ptho(j,1)**2 &
-               & - 0.13422_wp*ptho(j,1)**3 + 0.0011506_wp*ptho(j,1)**4
+        !
+        !  Compute the transfer (piston) velocity in m/s
+        !  660 = Schmidt number of CO2 @ 20 degC in seawater
 
-           scdms =  2855.7_wp - 177.63_wp*ptho(j,1)  + 6.0438_wp*ptho(j,1)**2 &
-               & - 0.11645_wp*ptho(j,1)**3 + 0.00094743_wp*ptho(j,1)**4
+        ! Ignore ice for co2 here because coupling needs unscaled flux
+        kwco2(j) =                      cmh2ms * pfu10( j)**2        &
+        &           * (660._wp / scco2)**0.5_wp
 
-           !
-           !  Compute the transfer (piston) velocity in m/s
-           !  660 = Schmidt number of CO2 @ 20 degC in seawater
+        kwo2  = (1._wp - psicomo( j)) * cmh2ms * pfu10( j)**2        &
+        &           * (660._wp / sco2)**0.5_wp
 
-           ! Ignore ice for co2 here because coupling needs unscaled flux
-           kwco2 =                        cmh2ms * pfu10( j)**2        &
-                &           * (660._wp / scco2)**0.5_wp
+        kwdms = (1._wp - psicomo(j)) * cmh2ms * pfu10( j)**2        &
+        &           * (660._wp / scdms)**0.5_wp
 
+        kwn2o = (1._wp - psicomo(j)) * cmh2ms * pfu10( j)**2        &
+        &           * (660._wp / scn2o)**0.5_wp
 
-           kwo2  = (1._wp - psicomo( j)) * cmh2ms * pfu10( j)**2        &
-                &           * (660._wp / sco2)**0.5_wp
+        IF(l_cpl_co2) THEN
+            atco2(j) = local_bgc_mem%atm(j,iatmco2)
+        END IF
 
-           kwdms = (1._wp - psicomo(j)) * cmh2ms * pfu10( j)**2        &
-                &           * (660._wp / scdms)**0.5_wp
+        IF(.NOT. l_cpl_co2) THEN
+            atco2(j) = atm_co2
+        END IF
 
+        ato2  = atm_o2
+        atn2  = atm_n2
 
-           kwn2o = (1._wp - psicomo(j)) * cmh2ms * pfu10( j)**2        &
-                &           * (660._wp / scn2o)**0.5_wp
+        !*********************************************************************
+        !
+        ! Calculate air-sea exchange for O2, N2, N2O
+        !
+        !*********************************************************************
 
-           if(l_cpl_co2)then
-            atco2 = local_bgc_mem%atm(j,iatmco2)
-           else
-            atco2 = atm_co2
-           endif
-           ato2  = atm_o2
-           atn2  = atm_n2
+        ! Surface flux of oxygen
+        ! (Meiner-Reimer et. al, 2005, Eq. 74)
 
-          !*********************************************************************
-          !
-          ! Calculate air-sea exchange for O2, N2, N2O
-          !
-          !*********************************************************************
+        oxflux = kwo2 * dtbgc * (local_bgc_mem%bgctra(j,1,ioxygen)                &
+        &  -local_bgc_mem%satoxy(j,1) * (ato2 / 196800._wp)) ! *ppao(i,j)/101300. ! sea level pressure normalization
 
-           ! Surface flux of oxygen
-           ! (Meiner-Reimer et. al, 2005, Eq. 74)
+        local_bgc_mem%bgcflux(j,koflux) = oxflux/dtbgc
 
-           oxflux = kwo2 * dtbgc * (local_bgc_mem%bgctra(j,1,ioxygen)                &
-                &  -local_bgc_mem%satoxy(j,1) * (ato2 / 196800._wp)) ! *ppao(i,j)/101300. ! sea level pressure normalization
+        local_bgc_mem%bgctra(j,1,ioxygen) = local_bgc_mem%bgctra(j,1,ioxygen)                 &
+        &                - oxflux/(pddpo(j,1)+za(j))
 
+        ! Surface flux of gaseous nitrogen (same piston velocity as for O2)
+        ! (Meiner-Reimer et. al, 2005, Eq. 75)
 
-           local_bgc_mem%bgcflux(j,koflux) = oxflux/dtbgc
+        niflux = kwo2 * dtbgc * (local_bgc_mem%bgctra(j,1,igasnit)                &
+        & -local_bgc_mem%satn2(j)*(atn2/802000._wp)) ! *ppao(i,j)/101300.
 
-           local_bgc_mem%bgctra(j,1,ioxygen) = local_bgc_mem%bgctra(j,1,ioxygen)                 &
-                &                - oxflux/(pddpo(j,1)+za(j))
+        local_bgc_mem%bgcflux(j,knflux) = niflux/dtbgc
 
+        local_bgc_mem%bgctra(j,1,igasnit) = local_bgc_mem%bgctra(j,1,igasnit)                   &
+        &                - niflux/(pddpo(j,1)+za(j))
 
-           ! Surface flux of gaseous nitrogen (same piston velocity as for O2)
-           ! (Meiner-Reimer et. al, 2005, Eq. 75)
+        ! Surface flux of laughing gas (same piston velocity as for O2 and N2)
+        ! (Meiner-Reimer et. al, 2005, Eq. 76)
 
-           niflux = kwo2 * dtbgc * (local_bgc_mem%bgctra(j,1,igasnit)                &
-                & -local_bgc_mem%satn2(j)*(atn2/802000._wp)) ! *ppao(i,j)/101300.
+        nlaughflux = kwn2o * dtbgc * (local_bgc_mem%bgctra(j,1,ian2o)              &
+        &     - local_bgc_mem%satn2o(j))
 
-           local_bgc_mem%bgcflux(j,knflux) = niflux/dtbgc
+        local_bgc_mem%bgctra(j,1,ian2o) = local_bgc_mem%bgctra(j,1,ian2o)                     &
+        &              - nlaughflux/(pddpo(j,1)+za(j))
+        local_bgc_mem%bgcflux(j,kn2oflux) = nlaughflux/dtbgc
 
-           local_bgc_mem%bgctra(j,1,igasnit) = local_bgc_mem%bgctra(j,1,igasnit)                   &
-                &                - niflux/(pddpo(j,1)+za(j))
+        ! Surface flux of dms
 
+        ! (Meiner-Reimer et. al, 2005, Eq. 77)
 
-           ! Surface flux of laughing gas (same piston velocity as for O2 and N2)
-           ! (Meiner-Reimer et. al, 2005, Eq. 76)
+        dmsflux = kwdms*dtbgc*local_bgc_mem%bgctra(j,1,idms)
 
-           nlaughflux = kwn2o * dtbgc * (local_bgc_mem%bgctra(j,1,ian2o)              &
-                &     - local_bgc_mem%satn2o(j))
+        local_bgc_mem%bgctra(j,1,idms) = local_bgc_mem%bgctra(j,1,idms) - dmsflux/pddpo(j,1)
 
-           local_bgc_mem%bgctra(j,1,ian2o) = local_bgc_mem%bgctra(j,1,ian2o)                     &
-                &              - nlaughflux/(pddpo(j,1)+za(j))
-           local_bgc_mem%bgcflux(j,kn2oflux) = nlaughflux/dtbgc
+        local_bgc_mem%bgcflux(j,kdmsflux) = dmsflux/dtbgc
 
+    END IF
 
+  END DO
 
-           ! Surface flux of dms
+  !NEC$ nomove
+  DO j = start_idx, end_idx
 
-           ! (Meiner-Reimer et. al, 2005, Eq. 77)
-
-           dmsflux = kwdms*dtbgc*local_bgc_mem%bgctra(j,1,idms)
-
-           local_bgc_mem%bgctra(j,1,idms) = local_bgc_mem%bgctra(j,1,idms) - dmsflux/pddpo(j,1)
-
-           local_bgc_mem%bgcflux(j,kdmsflux) = dmsflux/dtbgc
+    IF( vmask(j) ) THEN
 
         !*********************************************************************
         !
@@ -379,70 +391,88 @@ SUBROUTINE gasex (local_bgc_mem, start_idx,end_idx, pddpo, za, ptho, psao,  &
         !
         !*********************************************************************
 
-         ! Update local_bgc_mem%hi
+        ! Update local_bgc_mem%hi
 
-           local_bgc_mem%hi(j,k) = update_hi(local_bgc_mem%hi(j,k), local_bgc_mem%bgctra(j,k,isco212), local_bgc_mem%aksurf(j,1) , &
-    &          local_bgc_mem%aksurf(j,2),  local_bgc_mem%aksurf(j,4), local_bgc_mem%aksurf(j,7), local_bgc_mem%aksurf(j,6), local_bgc_mem%aksurf(j,5),&
-    &          local_bgc_mem%aksurf(j,8), local_bgc_mem%aksurf(j,9),local_bgc_mem%aksurf(j,10), psao(j,k) , local_bgc_mem%aksurf(j,3), &
-    &          local_bgc_mem%bgctra(j,k,isilica), local_bgc_mem%bgctra(j,k,iphosph),local_bgc_mem%bgctra(j,k,ialkali) )
+        local_bgc_mem%hi(j,1) = update_hi(local_bgc_mem%hi(j,1), local_bgc_mem%bgctra(j,1,isco212), local_bgc_mem%aksurf(j,1) , &
+        &  local_bgc_mem%aksurf(j,2),  local_bgc_mem%aksurf(j,4), local_bgc_mem%aksurf(j,7), local_bgc_mem%aksurf(j,6), local_bgc_mem%aksurf(j,5),&
+        &  local_bgc_mem%aksurf(j,8), local_bgc_mem%aksurf(j,9),local_bgc_mem%aksurf(j,10), psao(j,1) , local_bgc_mem%aksurf(j,3), &
+        &  local_bgc_mem%bgctra(j,1,isilica), local_bgc_mem%bgctra(j,1,iphosph),local_bgc_mem%bgctra(j,1,ialkali) )
 
+    END IF
 
-         !
-         ! Calculate pCO2 [ppmv] from total dissolved inorganic carbon (DIC: SCO212)
-         ! the calculation also includes solubility
-         !
-           pco2=  local_bgc_mem%bgctra(j,k,isco212)  /((1._wp + local_bgc_mem%aksurf(j,1) * (1._wp + &
-             & local_bgc_mem%aksurf(j,2)/local_bgc_mem%hi(j,k))/local_bgc_mem%hi(j,k)) * local_bgc_mem%solco2(j))
+  END DO
 
-           fluxd=atco2*kwco2*dtbgc*local_bgc_mem%solco2(j) !
-           fluxu=pco2 *kwco2*dtbgc*local_bgc_mem%solco2(j) !
+  !NEC$ nomove
+  DO j = start_idx, end_idx
 
-!         ! new concentrations ocean (kmol/m3 -->ppm)
-           thickness = pddpo(j,1) + za(j)
-           local_bgc_mem%bgctra(j,1,isco212) = local_bgc_mem%bgctra(j,1,isco212)+ (1._wp - psicomo(j)) * (fluxd-fluxu)/thickness
-           local_bgc_mem%bgcflux(j,kcflux) = (1._wp - psicomo(j)) * (fluxu-fluxd)/dtbgc
-           local_bgc_mem%bgcflux(j,kcflux_cpl) = (fluxu-fluxd)/dtbgc
-           local_bgc_mem%bgcflux(j,kpco2) = pco2
+    IF( vmask(j) ) THEN
 
+        !
+        ! Calculate pCO2 [ppmv] from total dissolved inorganic carbon (DIC: SCO212)
+        ! the calculation also includes solubility
+        !
+        pco2=  local_bgc_mem%bgctra(j,1,isco212)  /((1._wp + local_bgc_mem%aksurf(j,1) * (1._wp + &
+        & local_bgc_mem%aksurf(j,2)/local_bgc_mem%hi(j,1))/local_bgc_mem%hi(j,1)) * local_bgc_mem%solco2(j))
 
+        fluxd=atco2(j)*kwco2(j)*dtbgc*local_bgc_mem%solco2(j) !
+        fluxu=pco2 *kwco2(j)*dtbgc*local_bgc_mem%solco2(j) !
 
+        ! new concentrations ocean (kmol/m3 -->ppm)
+        thickness(j) = pddpo(j,1) + za(j)
+        local_bgc_mem%bgctra(j,1,isco212) = local_bgc_mem%bgctra(j,1,isco212)+ (1._wp - psicomo(j)) * (fluxd-fluxu)/thickness(j)
+        local_bgc_mem%bgcflux(j,kcflux) = (1._wp - psicomo(j)) * (fluxu-fluxd)/dtbgc
+        local_bgc_mem%bgcflux(j,kcflux_cpl) = (fluxu-fluxd)/dtbgc
+        local_bgc_mem%bgcflux(j,kpco2) = pco2
 
-           if (l_N_cycle) then
-              ! Surface flux of ammonia  ! taken from Johnson et al, GBC,2008
-              ! with atm. NH3 set to zero F = kgammo*KH_nh3 * NH3_seawater
-              ! with NH3_seatwater = NH4* Ka/(Ka+hi) (Ka dissociation coef.)
+    END IF
 
-              ! gas phase tranfer velocity
-              kgammo = (1._wp - psicomo(j))*pfu10(j)/kg_denom
+  END DO
 
-              ! Henry's law coefficient
-              tabs = ptho(j,1) + 273.15_wp
-              ecoef = 4092._wp/tabs - 9.70_wp
-              kh_nh3i = 17.93_wp*(tabs/273.15_wp)*exp(ecoef)
-              kh_nh3 = 1./kh_nh3i
+  IF (l_N_cycle) THEN
 
-              pka_nh3 = -0.467_wp + 0.00113_wp*psao(j,1) + 2887.9_wp/tabs
-              ka_nh3 = 10._wp**(-pka_nh3)
+    ! RSE: INACTIVE CODE BLOCK
+    ! WRITE(0,*) "ERROR: The program has entered an untested block of code."
+    ! STOP
 
-              ! NH3 in seawater
-              nh3sw = local_bgc_mem%bgctra(j,1,iammo)*ka_nh3/(ka_nh3+local_bgc_mem%hi(j,1))
+    !NEC$ nomove
+    DO j = start_idx, end_idx
 
-              ammoflux = max(0._wp, dtbgc*kgammo*kh_nh3*nh3sw)
-              local_bgc_mem%bgctra(j,1,iammo) = local_bgc_mem%bgctra(j,1,iammo) - ammoflux/thickness
+        IF( vmask(j) ) THEN
 
-              ! LR: from mpiom, do not know what this is for ?!
-              ! atm(i,j,iatmn2) = atm(i,j,iatmn2) + ammoflux*contppm/2._wp   !closing mass balance
+            ! Surface flux of ammonia  ! taken from Johnson et al, GBC,2008
+            ! with atm. NH3 set to zero F = kgammo*KH_nh3 * NH3_seawater
+            ! with NH3_seatwater = NH4* Ka/(Ka+hi) (Ka dissociation coef.)
 
-              ! LR: from mpiom, don't think this is needed
-              ! nh3flux(j) = nh3flux(i,j) + ammoflux  ! LR: from mpiom
+            ! gas phase tranfer velocity
+            kgammo = (1._wp - psicomo(j))*pfu10(j)/kg_denom
 
-              local_bgc_mem%bgcflux(j,knh3flux) = ammoflux/dtbgc
-           endif
+            ! Henry's law coefficient
+            tabs = ptho(j,1) + 273.15_wp
+            ecoef = 4092._wp/tabs - 9.70_wp
+            kh_nh3i = 17.93_wp*(tabs/273.15_wp)*exp(ecoef)
+            kh_nh3 = 1./kh_nh3i
 
+            pka_nh3 = -0.467_wp + 0.00113_wp*psao(j,1) + 2887.9_wp/tabs
+            ka_nh3 = 10._wp**(-pka_nh3)
 
-        ENDIF ! wet cell
-     END DO
-     !$ACC END PARALLEL
+            ! NH3 in seawater
+            nh3sw = local_bgc_mem%bgctra(j,1,iammo)*ka_nh3/(ka_nh3+local_bgc_mem%hi(j,1))
+
+            ammoflux = max(0._wp, dtbgc*kgammo*kh_nh3*nh3sw)
+            local_bgc_mem%bgctra(j,1,iammo) = local_bgc_mem%bgctra(j,1,iammo) - ammoflux/thickness(j)
+
+            ! LR: from mpiom, do not know what this is for ?!
+            ! atm(i,j,iatmn2) = atm(i,j,iatmn2) + ammoflux*contppm/2._wp   !closing mass balance
+
+            ! LR: from mpiom, don't think this is needed
+            ! nh3flux(j) = nh3flux(i,j) + ammoflux  ! LR: from mpiom
+
+            local_bgc_mem%bgcflux(j,knh3flux) = ammoflux/dtbgc
+        END IF
+
+    END DO
+
+  END IF ! l_N_cycle
 
 END SUBROUTINE
 END MODULE mo_bgc_surface
