@@ -224,7 +224,7 @@ SUBROUTINE gasex (local_bgc_mem, start_idx,end_idx, pddpo, za, ptho, psao,  &
 
   USE mo_bgc_constants, ONLY : cmh2ms
 
-  USE mo_carchm,    ONLY: update_hi
+  USE mo_carchm,    ONLY: update_hi, update_hi_sub
 
   IMPLICIT NONE
 
@@ -380,6 +380,8 @@ SUBROUTINE gasex (local_bgc_mem, start_idx,end_idx, pddpo, za, ptho, psao,  &
 
   END DO
 
+#if 0
+
   !NEC$ nomove
   DO j = start_idx, end_idx
 
@@ -401,6 +403,18 @@ SUBROUTINE gasex (local_bgc_mem, start_idx,end_idx, pddpo, za, ptho, psao,  &
     END IF
 
   END DO
+
+#else
+
+    CALL update_hi_sub(local_bgc_mem%hi(start_idx:end_idx,1), local_bgc_mem%bgctra(start_idx:end_idx,1,isco212), &
+        &  local_bgc_mem%aksurf(start_idx:end_idx,1), local_bgc_mem%aksurf(start_idx:end_idx,2), local_bgc_mem%aksurf(start_idx:end_idx,4), &
+        &  local_bgc_mem%aksurf(start_idx:end_idx,7), local_bgc_mem%aksurf(start_idx:end_idx,6), local_bgc_mem%aksurf(start_idx:end_idx,5), &
+        &  local_bgc_mem%aksurf(start_idx:end_idx,8), local_bgc_mem%aksurf(start_idx:end_idx,9), local_bgc_mem%aksurf(start_idx:end_idx,10), &
+        &  psao(start_idx:end_idx,1) , local_bgc_mem%aksurf(start_idx:end_idx,3), local_bgc_mem%bgctra(start_idx:end_idx,1,isilica), &
+        &  local_bgc_mem%bgctra(start_idx:end_idx,1,iphosph), local_bgc_mem%bgctra(start_idx:end_idx,1,ialkali), &
+        &  local_bgc_mem%hi(start_idx:end_idx,1), start_idx, end_idx, vmask(start_idx:end_idx))
+
+#endif
 
   !NEC$ nomove
   DO j = start_idx, end_idx
