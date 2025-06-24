@@ -43,9 +43,10 @@ USE mo_fortran_tools, ONLY  : set_acc_host_or_device
 IMPLICIT NONE
 
 PRIVATE :: anw_infsup, equation_at, ahini_for_at, solve_at_general
-PRIVATE :: update_hi_sub, solve_at_general_sub
+PRIVATE :: solve_at_general_sub
 
 PUBLIC  :: calc_dissol, update_hi
+PUBLIC  :: update_hi_sub
 
 !===============================================================================
 ! The Parameters needed for the mocsy Funtions/Subroutines
