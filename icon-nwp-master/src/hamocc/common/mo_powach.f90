@@ -87,7 +87,7 @@ CONTAINS
    REAL(wp) :: orgsed                        ! sum of C12 and C13 in organic sed.
    REAL(wp) :: sssnew                        ! temporarily value of solid constituent after solution
 
-   REAL(wp) :: powcar(ks)
+   REAL(wp) :: powcar(start_idx:end_idx, ks)
 
    REAL(wp) :: undsa, posol, pomax
    REAL(wp) :: satlev
@@ -130,6 +130,7 @@ CONTAINS
 
 !!! WE start with remineralisation of organic to estimate alkalinity changes first
 !
+    !NEC$ nomove
     DO j = start_idx, end_idx
 
         IF(local_bgc_mem%bolay(j) > 0._wp) THEN
@@ -146,9 +147,10 @@ CONTAINS
 ! Calculate new solid sediment.
 ! Update pore water concentration.
 
-    DO j = start_idx, end_idx
+    !NEC$ nomove
+    DO k=1,ks
 
-        DO k=1,ks ! Vectorized
+        DO j = start_idx, end_idx
             IF(local_bgc_mem%bolay(j) > 0._wp) THEN
                 IF (local_sediment_mem%powtra(j, k, ipowaox) > 2.e-6_wp) THEN
 
@@ -254,9 +256,10 @@ CONTAINS
 ! Denitrification rate constant of POP (disso) [1/sec]
 ! Store flux in array anaerob, for later computation of DIC and alkalinity.
 
-    DO j = start_idx, end_idx
+    !NEC$ nomove
+    DO  k=1,ks
 
-        DO  k=1,ks ! Vectorized
+        DO j = start_idx, end_idx
             IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
 
                 !!!! not N-cycle !!!!!!!!
@@ -361,9 +364,10 @@ CONTAINS
     !!!! N-cycle !!!!!!!!
     IF (l_N_cycle) THEN
 
-        DO j = start_idx, end_idx
+        !NEC$ nomove
+        DO  k=1,ks
 
-            DO  k=1,ks ! Vectorized
+            DO j = start_idx, end_idx
                 IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
 
                     ! DENITRIFICATION on NO2
@@ -448,9 +452,10 @@ CONTAINS
 
     ! sulphate reduction in sediments
     ! Denitrification rate constant of POP (disso) [1/sec]
-    DO j = start_idx, end_idx
+    !NEC$ nomove
+    DO  k=1,ks
 
-        DO  k=1,ks ! Vectorized
+        DO j = start_idx, end_idx
             IF (local_bgc_mem%bolay( j) > 0._wp) THEN
                 IF (.not. l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<1.e-6_wp .or. &
                 & l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<o2den_lim .and. &
@@ -508,9 +513,10 @@ CONTAINS
         END IF
     END DO
 
-    DO j = start_idx, end_idx
+    !NEC$ nomove
+    DO  k=1,ks
 
-        DO  k=1,ks ! Vecorized
+        DO j = start_idx, end_idx
             IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
                 undsa=MAX(silsat-local_sediment_mem%powtra(j,k,ipowasi),0._wp)
                 ! explixit version
@@ -545,9 +551,10 @@ CONTAINS
 
 ! ******************************************** POWCAR ********************************************
 
-    DO j = start_idx, end_idx
+    !NEC$ nomove
+    DO k = 1, ks
 
-        DO k = 1, ks ! NOT VECTORIZED
+        DO j = start_idx, end_idx
 
             IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
                 local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic),local_bgc_mem%ak13(j,kbo(j)),&
@@ -556,12 +563,25 @@ CONTAINS
                 &                             local_bgc_mem%ak2p3(j,kbo(j)),local_bgc_mem%ak3p3(j,kbo(j)),psao(j,kbo(j)),&
                 &                             local_bgc_mem%akb3(j,kbo(j)),local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph),&
                 &                             local_sediment_mem%powtra(j,k,ipowaal))
+            END IF
 
-                powcar(k)  = local_sediment_mem%powtra(j,k,ipowaic) / (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak23(j,kbo(j)) &
+        END DO
+
+    END DO
+
+    !NEC$ nomove
+    DO k = 1, ks
+
+        DO j = start_idx, end_idx
+
+            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+                powcar(j,k)  = local_sediment_mem%powtra(j,k,ipowaic) / (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak23(j,kbo(j)) &
                 &                    * (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak13(j,kbo(j))))
             END IF
 
         END DO
+
+    END DO
 
         ! Evaluate boundary conditions for sediment-water column exchange.
         ! Current undersaturation of bottom water: sedb(i,0) and
@@ -575,7 +595,10 @@ CONTAINS
         ! Instead, only update DIC, and, of course, alkalinity.
         ! This also includes gains from aerobic and anaerobic decomposition.
 
-        DO  k=1,ks ! Vectorized
+    !NEC$ nomove
+    DO k = 1, ks
+
+        DO j = start_idx, end_idx
             IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
 
                 satlev=local_bgc_mem%aksp(j,kbo(j))/calcon
@@ -584,7 +607,7 @@ CONTAINS
                 !adsorption to existing calcareous shells happens. In most parts of the
                 !ocean this seems to be unlikely. Thus, we restrict on real undersaturation:
 
-                undsa = MAX(satlev - powcar( k), 0._wp)
+                undsa = MAX(satlev - powcar(j,k), 0._wp)
                 sssnew = local_sediment_mem%sedlay(j,k,isssc12)/(1._wp+ disso_cal*undsa)
                 posol =  local_sediment_mem%sedlay(j,k,isssc12) - sssnew
 
