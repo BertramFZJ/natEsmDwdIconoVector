@@ -124,16 +124,35 @@ CONTAINS
 
    ! REAL(wp) :: annpot, fdenit, fnrn2
 
+   !! Vectorization local variables
+   LOGICAL :: vmaskBolay(start_idx:end_idx)
+   LOGICAL :: vmaskBolayPDDPO(start_idx:end_idx)
+
    CALL set_acc_host_or_device(lzacc, lacc)
 
    kbo => local_bgc_mem%kbo
+
+   !NEC$ nomove
+   DO j = start_idx, end_idx
+    IF( local_bgc_mem%bolay(j) > 0._wp ) THEN
+        vmaskBolay(j) = .TRUE.
+    ELSE
+        vmaskBolay(j) = .FALSE.
+    END IF
+
+    IF( vmaskBolay(j) .AND. (pddpo(j,1)>EPSILON(0.5_wp)) ) THEN
+        vmaskBolayPDDPO(j) = .TRUE.
+    ELSE
+        vmaskBolayPDDPO(j) = .FALSE.
+    END IF
+   END DO
 
 !!! WE start with remineralisation of organic to estimate alkalinity changes first
 !
     !NEC$ nomove
     DO j = start_idx, end_idx
 
-        IF(local_bgc_mem%bolay(j) > 0._wp) THEN
+        IF(vmaskBolay(j)) THEN
             local_sediment_mem%sedlay(j,1,issso12) &
             & = local_sediment_mem%sedlay(j,1,issso12) + local_sediment_mem%prorca(j)/(porsol(1)*seddw(1))
         END IF
@@ -260,7 +279,7 @@ CONTAINS
     DO  k=1,ks
 
         DO j = start_idx, end_idx
-            IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
+            IF(vmaskBolay(j)) THEN
 
                 !!!! not N-cycle !!!!!!!!
                 IF (.not. l_N_cycle) THEN
@@ -368,7 +387,7 @@ CONTAINS
         DO  k=1,ks
 
             DO j = start_idx, end_idx
-                IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
+                IF (vmaskBolay(j)) THEN
 
                     ! DENITRIFICATION on NO2
                     IF (local_sediment_mem%powtra(j,k,ipowaox) < o2den_lim) THEN
@@ -456,7 +475,7 @@ CONTAINS
     DO  k=1,ks
 
         DO j = start_idx, end_idx
-            IF (local_bgc_mem%bolay( j) > 0._wp) THEN
+            IF(vmaskBolay(j)) THEN
                 IF (.not. l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<1.e-6_wp .or. &
                 & l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<o2den_lim .and. &
                 & local_sediment_mem%powtra(j,k,ipowno3) < 30.e-6_wp) THEN
@@ -506,7 +525,7 @@ CONTAINS
 
     DO j = start_idx, end_idx
         ! Add sediment flux of opal
-        IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+        IF(vmaskBolay(j)) THEN
             local_sediment_mem%sedlay(j,1,issssil) = &
             & local_sediment_mem%sedlay(j,1,issssil)+local_sediment_mem%silpro(j)/(porsol(1)*seddw(1))
             ! silpro(j)=0._wp
@@ -517,7 +536,7 @@ CONTAINS
     DO  k=1,ks
 
         DO j = start_idx, end_idx
-            IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+            IF(vmaskBolay(j)) THEN
                 undsa=MAX(silsat-local_sediment_mem%powtra(j,k,ipowasi),0._wp)
                 ! explixit version
                 ! new implicit within layer
@@ -541,7 +560,7 @@ CONTAINS
     DO j = start_idx, end_idx
 
         ! Add sediment flux of CaCO3
-        IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+        IF(vmaskBolay(j)) THEN
             local_sediment_mem%sedlay(j,1,isssc12) = &
             &      local_sediment_mem%sedlay(j,1,isssc12)+local_sediment_mem%prcaca(j)/(porsol(1)*seddw(1))
             !   local_sediment_mem%prcaca(j)=0._wp
@@ -556,7 +575,7 @@ CONTAINS
 
         DO j = start_idx, end_idx
 
-            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+            IF(vmaskBolayPDDPO(j)) THEN
                 local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic),local_bgc_mem%ak13(j,kbo(j)),&
                 &                             local_bgc_mem%ak23(j,kbo(j)),local_bgc_mem%akw3(j,kbo(j)),local_bgc_mem%aks3(j,kbo(j)),&
                 &                             local_bgc_mem%akf3(j,kbo(j)),local_bgc_mem%aksi3(j,kbo(j)),local_bgc_mem%ak1p3(j,kbo(j)),&
@@ -574,7 +593,7 @@ CONTAINS
 
         DO j = start_idx, end_idx
 
-            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+            IF(vmaskBolayPDDPO(j)) THEN
                 powcar(j,k)  = local_sediment_mem%powtra(j,k,ipowaic) / (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak23(j,kbo(j)) &
                 &                    * (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak13(j,kbo(j))))
             END IF
@@ -599,7 +618,7 @@ CONTAINS
     DO k = 1, ks
 
         DO j = start_idx, end_idx
-            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+            IF(vmaskBolayPDDPO(j)) THEN
 
                 satlev=local_bgc_mem%aksp(j,kbo(j))/calcon
                 !in oversaturated ( wrt calcite, powcar> satlev) water the "undersaturation" is negativ.
