@@ -41,8 +41,9 @@ CONTAINS
         &                     rcar, ralk, riron,                   &
         &                     nitrira, ro2ammo, anamoxra, bkno2, nitriox, &
         &                     no2denit, rnh4no2, rno2no3, rno3no2,rno3nh4,&
-        &                     rno2n2, ro2nitri, alk_nrn2,                 &
+        &                     rno2n2, alk_nrn2,                 &
         &                     o2thresh, o2den_lim
+        ! ro2nitri
 
    USE mo_sedmnt, ONLY      : seddw,              &
         &                     sred_sed,              &
@@ -94,22 +95,22 @@ CONTAINS
 
    !!!! extended N-cycle variables
    REAL(wp) :: posol_nit
-   REAL(wp) :: dissot1
+   REAL(wp) :: dissot1 ! Warning: 'dissot1' may be used uninitialized [-Wmaybe-uninitialized]
    REAL(wp) :: popot
    REAL(wp) :: o2lim
-   REAL(wp) :: nitrif          ! local rate of NH4 conversion to NO3 (adapted from EMR)
+   ! REAL(wp) :: nitrif          ! local rate of NH4 conversion to NO3 (adapted from EMR)
    REAL(wp) :: ammox,nitox     ! oxidation of NH4 to NO2 and NO2 to NO3, light dep.
    REAL(wp) :: fammox,fnitox   ! local rate of ammox,nitox
    REAL(wp) :: detn,dnrn,dnra,nrn2,anamox ! processes of N-cycle
    REAL(wp) :: nh4a,no2a,no3a,nh4n       ! old NH4,NO2,NO3 after biological processes
-   REAL(wp) :: no2c_act       ! absolut  change in no2 due to anamox and denitrification
+   ! REAL(wp) :: no2c_act       ! absolut  change in no2 due to anamox and denitrification
    REAL(wp) :: no2c_max       ! max  change in no2 due to anamox and denitrification
    REAL(wp) :: no2rmax        ! max potential rate of change no2 due to anamox and denitrification
-   REAL(wp) :: denpot         ! moa potential change in detn
-   REAL(wp) :: fdnrn,fdnra,fnrn2,fdenit! fraction of total processes of N-cycle
-   REAL(wp) :: annpot,anam     ! potential anamox in anaerobic water
-   REAL(wp) :: oxpot      ! potential oxdiation of NH4 and NO2 in aerobic water
-   REAL(wp) :: no3c_act       ! absolute change in NO3 due to DNRN/A and auto.denitrification
+   ! REAL(wp) :: denpot         ! moa potential change in detn
+   REAL(wp) :: fdnrn,fdnra ! fraction of total processes of N-cycle
+   REAL(wp) :: anam     ! potential anamox in anaerobic water
+   ! REAL(wp) :: oxpot      ! potential oxdiation of NH4 and NO2 in aerobic water
+   ! REAL(wp) :: no3c_act       ! absolute change in NO3 due to DNRN/A and auto.denitrification
    REAL(wp) :: no3c_max       ! max change in NO3 due to DNRN/A and auto.denitrification
    REAL(wp) :: no3rmax        ! max potential rate of change in NO3 due to DNRN/A and auto.denitrification
    REAL(wp) :: detc_act       ! absolute change in NO3 due to DNRN/A
@@ -117,25 +118,26 @@ CONTAINS
    REAL(wp) :: rdnrn,rdnra    ! local rates of DNRN/A
    REAL(wp) :: oxmax,oxact,r_nitox,r_ammox ! all for nitrification of NH4 and NO2
 
-   REAL(wp) :: denlim_no3     ! saturation function for denitrification on low NO3
-   REAL(wp) :: quadno3        ! for saturation function quadartic no3
+   ! REAL(wp) :: denlim_no3     ! saturation function for denitrification on low NO3
+   ! REAL(wp) :: quadno3        ! for saturation function quadartic no3
    REAL(wp) :: newammo,newnitr
+
+   ! REAL(wp) :: annpot, fdenit, fnrn2
 
    CALL set_acc_host_or_device(lzacc, lacc)
 
-  kbo => local_bgc_mem%kbo
+   kbo => local_bgc_mem%kbo
 
 !!! WE start with remineralisation of organic to estimate alkalinity changes first
 !
-   !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-   !$ACC LOOP GANG VECTOR PRIVATE(powcar)
-   DO j = start_idx, end_idx
+    DO j = start_idx, end_idx
 
-         IF(local_bgc_mem%bolay(j) > 0._wp) THEN
-            local_sediment_mem%sedlay(j,1,issso12)                                     &
-     &      = local_sediment_mem%sedlay(j,1,issso12) + local_sediment_mem%prorca(j)/(porsol(1)*seddw(1))
-         !   prorca(j) = 0._wp
-         ENDIF
+        IF(local_bgc_mem%bolay(j) > 0._wp) THEN
+            local_sediment_mem%sedlay(j,1,issso12) &
+            & = local_sediment_mem%sedlay(j,1,issso12) + local_sediment_mem%prorca(j)/(porsol(1)*seddw(1))
+        END IF
+
+    END DO
 
 
 ! CALCULATE OXYGEN-POC CYCLE
@@ -144,349 +146,352 @@ CONTAINS
 ! Calculate new solid sediment.
 ! Update pore water concentration.
 
-      DO k=1,ks
-         IF(local_bgc_mem%bolay(j) > 0._wp) THEN
-         IF (local_sediment_mem%powtra(j, k, ipowaox) > 2.e-6_wp) THEN
+    DO j = start_idx, end_idx
 
-            !!!! N-cycle !!!!!!!!
-            IF (l_N_cycle) THEN
-               o2lim = local_sediment_mem%powtra(j,k,ipowaox)/(o2thresh + local_sediment_mem%powtra(j,k,ipowaox)) ! o2 limitation in oxic water
-               pomax = o2lim*dissot1*local_sediment_mem%powtra(j,k,ipowaox)
-               sssnew = local_sediment_mem%sedlay(j,k,issso12)/(1._wp + pomax)
-               popot = local_sediment_mem%sedlay(j,k,issso12) - sssnew   ! potential change for org sed.
-               posol = min(0.9_wp*local_sediment_mem%powtra(j,k,ipowaox)/(pors2w(k)*ro2ammo),popot)
-            ELSE
-               ! o2lim = local_sediment_mem%powtra(j,k,ipowaox)/(o2thresh+local_sediment_mem%powtra(j,k,ipowaox)) ! o2 limitation in oxic water
+        DO k=1,ks ! Vectorized
+            IF(local_bgc_mem%bolay(j) > 0._wp) THEN
+                IF (local_sediment_mem%powtra(j, k, ipowaox) > 2.e-6_wp) THEN
 
-               ! maximal possible aerobe dissolution per time step
-               ! limited by available oxygen concentration, currently max 70 % of O2
-               pomax = disso_po * max(0._wp,local_sediment_mem%sedlay(j,k,issso12))*local_sediment_mem%powtra(j,k,ipowaox)
-               posol = min(0.7_wp*local_sediment_mem%powtra(j,k,ipowaox)/ro2ut/pors2w(k),pomax)
-            ENDIF
+                    !!!! N-cycle !!!!!!!!
+                    IF (l_N_cycle) THEN
+                        o2lim = local_sediment_mem%powtra(j,k,ipowaox)/(o2thresh + local_sediment_mem%powtra(j,k,ipowaox)) ! o2 limitation in oxic water
+                        pomax = o2lim*dissot1*local_sediment_mem%powtra(j,k,ipowaox)
+                        sssnew = local_sediment_mem%sedlay(j,k,issso12)/(1._wp + pomax)
+                        popot = local_sediment_mem%sedlay(j,k,issso12) - sssnew   ! potential change for org sed.
+                        posol = min(0.9_wp*local_sediment_mem%powtra(j,k,ipowaox)/(pors2w(k)*ro2ammo),popot)
+                    ELSE
+                        ! o2lim = local_sediment_mem%powtra(j,k,ipowaox)/(o2thresh+local_sediment_mem%powtra(j,k,ipowaox)) ! o2 limitation in oxic water
+                        ! maximal possible aerobe dissolution per time step
+                        ! limited by available oxygen concentration, currently max 70 % of O2
+                        pomax = disso_po * max(0._wp,local_sediment_mem%sedlay(j,k,issso12))*local_sediment_mem%powtra(j,k,ipowaox)
+                        posol = min(0.7_wp*local_sediment_mem%powtra(j,k,ipowaox)/ro2ut/pors2w(k),pomax)
+                    ENDIF
 
+                    local_sediment_mem%sedlay(j,k,issso12) = local_sediment_mem%sedlay(j,k,issso12) - posol
 
-            local_sediment_mem%sedlay(j,k,issso12) = local_sediment_mem%sedlay(j,k,issso12) - posol
+                    local_sediment_mem%powtra(j,k,ipowaic) = local_sediment_mem%powtra(j,k,ipowaic) + posol*rcar*pors2w(k)
+                    local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+ posol*pors2w(k)
+                    local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
 
-            local_sediment_mem%powtra(j,k,ipowaic) = local_sediment_mem%powtra(j,k,ipowaic) + posol*rcar*pors2w(k)
-            local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+ posol*pors2w(k)
-            local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
-            !!!! N-cycle !!!!!!!!
-            IF (l_N_cycle) THEN
-               local_sediment_mem%powtra(j,k,ipownh4)=local_sediment_mem%powtra(j,k,ipownh4)+posol*rnit*pors2w(k)
-               local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*(rnit - 1._wp)*pors2w(k)  !LR: watch out!
-               local_sediment_mem%powtra(j,k,ipowaox)=local_sediment_mem%powtra(j,k,ipowaox)-posol*pors2w(k)*ro2ammo
-            ELSE
-               local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)+ posol*rnit*pors2w(k)
-               local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)-posol*ralk*pors2w(k)
-               local_sediment_mem%powtra(j,k,ipowaox)=local_sediment_mem%powtra(j,k,ipowaox)-posol*pors2w(k)*ro2ut
-            ENDIF
+                    !!!! N-cycle !!!!!!!!
+                    IF (l_N_cycle) THEN
+                        local_sediment_mem%powtra(j,k,ipownh4)=local_sediment_mem%powtra(j,k,ipownh4)+posol*rnit*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*(rnit - 1._wp)*pors2w(k)  !LR: watch out!
+                        local_sediment_mem%powtra(j,k,ipowaox)=local_sediment_mem%powtra(j,k,ipowaox)-posol*pors2w(k)*ro2ammo
+                    ELSE
+                        local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)+ posol*rnit*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)-posol*ralk*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaox)=local_sediment_mem%powtra(j,k,ipowaox)-posol*pors2w(k)*ro2ut
+                    ENDIF
 
-            local_sediment_mem%sedtend(j,k,isremino) = posol*pors2w(k)/dtbgc
+                    local_sediment_mem%sedtend(j,k,isremino) = posol*pors2w(k)/dtbgc
 
+                    !!!! N-cycle !!!!!!!!
+                    !!!! Oxidation of NH4 and NO2
+                    IF (l_N_cycle) THEN
+                        fammox = nitrira          ! local rate of ammox per time step, no light dependence
+                        fnitox = nitriox          ! local rate of nitrite
 
-            !!!! N-cycle !!!!!!!!
-            !!!! Oxidation of NH4 and NO2
-            IF (l_N_cycle) THEN
-                fammox = nitrira          ! local rate of ammox per time step, no light dependence
-                fnitox = nitriox          ! local rate of nitrite
+                        nh4a  =  max(0._wp,local_sediment_mem%powtra(j,k,ipownh4))
 
-                nh4a  =  max(0._wp,local_sediment_mem%powtra(j,k,ipownh4))
+                        newammo = nh4a/(1._wp + fammox)
+                        ammox = nh4a - newammo
+                        no2a =  max(0._wp,local_sediment_mem%powtra(j,k,ipowno2))
+                        newnitr = no2a/ (1._wp + fnitox)                        ! change of nitrite
 
-                newammo = nh4a/(1._wp + fammox)
-                ammox = nh4a - newammo
-                no2a =  max(0._wp,local_sediment_mem%powtra(j,k,ipowno2))
-                newnitr = no2a/ (1._wp + fnitox)                        ! change of nitrite
+                        nitox = no2a - newnitr
 
-                nitox = no2a - newnitr
+                        !  ratio of change in o2 due to oxidation
+                        oxmax =  rno2no3*nitox +  rnh4no2*ammox   ! potential oxidation of NO2
+                        IF (oxmax > 0._wp) THEN
+                            r_nitox =   rno2no3*nitox/ oxmax
+                            r_ammox =   rnh4no2*ammox /oxmax
+                        ELSE
+                            r_nitox = 0._wp
+                            r_ammox = 0._wp
+                            oxmax = 0._wp
+                        END IF
+                        !        oxact always > 0 because we are in o2 > 2
+                        oxact = min(local_sediment_mem%powtra(j,k,ipowaox) - 0.5E-6_wp, oxmax)
 
-                !  ratio of change in o2 due to oxidation
-                oxmax =  rno2no3*nitox +  rnh4no2*ammox   ! potential oxidation of NO2
-                if  (oxmax > 0._wp) then
-                   r_nitox =   rno2no3*nitox/ oxmax
-                   r_ammox =   rnh4no2*ammox /oxmax
-                else
-                   r_nitox = 0._wp
-                   r_ammox = 0._wp
-                   oxmax = 0._wp
-                endif
-               !        oxact always > 0 because we are in o2 > 2
-                oxact = min(local_sediment_mem%powtra(j,k,ipowaox) - 0.5E-6_wp, oxmax)
+                        nitox = r_nitox*oxact/rno2no3
+                        ammox = r_ammox*oxact/rnh4no2
 
-                nitox = r_nitox*oxact/rno2no3
-                ammox = r_ammox*oxact/rnh4no2
+                        local_sediment_mem%powtra(j,k,ipownh4) = nh4a -ammox
+                        local_sediment_mem%powtra(j,k,ipowno2) = local_sediment_mem%powtra(j,k,ipowno2) + ammox-nitox ! change of nitrite
 
-                local_sediment_mem%powtra(j,k,ipownh4) = nh4a -ammox
-                local_sediment_mem%powtra(j,k,ipowno2) = local_sediment_mem%powtra(j,k,ipowno2) + ammox-nitox ! change of nitrite
+                        local_sediment_mem%powtra(j,k,ipowno3) = local_sediment_mem%powtra(j,k,ipowno3) + nitox
 
-                local_sediment_mem%powtra(j,k,ipowno3) = local_sediment_mem%powtra(j,k,ipowno3) + nitox
+                        local_sediment_mem%powtra(j,k,ipowaox) = local_sediment_mem%powtra(j,k,ipowaox)- rno2no3*nitox &
+                        & - rnh4no2*ammox ! O2 will be used during nitrification
 
-                local_sediment_mem%powtra(j,k,ipowaox) = local_sediment_mem%powtra(j,k,ipowaox)- rno2no3*nitox &
-                                       - rnh4no2*ammox ! O2 will be used during nitrification
+                        local_sediment_mem%powtra(j,k,ipowaal) = local_sediment_mem%powtra(j,k,ipowaal) - 2._wp*ammox ! ocean with NH4 - alkalinity change
+                        ! according to Wolf-Gladrow etal Mar. Chem. (2007)
 
-                local_sediment_mem%powtra(j,k,ipowaal) = local_sediment_mem%powtra(j,k,ipowaal) - 2._wp*ammox ! ocean with NH4 - alkalinity change
-                                                                            ! according to Wolf-Gladrow etal Mar. Chem. (2007)
+                        local_sediment_mem%sedtend(j,k,ksammox)=ammox/dtbgc
+                        local_sediment_mem%sedtend(j,k,ksnitox)=nitox/dtbgc
+                    END IF
 
-                local_sediment_mem%sedtend(j,k,ksammox)=ammox/dtbgc
-                local_sediment_mem%sedtend(j,k,ksnitox)=nitox/dtbgc
-            ENDIF
+                ELSE
 
-         ELSE
+                    local_sediment_mem%sedtend(j,k,isremino) = 0._wp
 
-            local_sediment_mem%sedtend(j,k,isremino) = 0._wp
+                    !!! N-cycle !!!!!!!!
+                    IF (l_N_cycle) THEN
+                        local_sediment_mem%sedtend(j,k,ksammox) = 0._wp
+                        local_sediment_mem%sedtend(j,k,ksnitox) = 0._wp
+                    END IF
 
-            !!!! N-cycle !!!!!!!!
-            IF (l_N_cycle) THEN
-               local_sediment_mem%sedtend(j,k,ksammox) = 0._wp
-                local_sediment_mem%sedtend(j,k,ksnitox) = 0._wp
-            ENDIF
+                END IF ! oxygen > 2.
+            END IF ! bolay > 0
 
-         ENDIF ! oxygen > 2.
-         ENDIF ! bolay > 0
+        END DO
 
-      ENDDO
-
-
-
-
+    END DO
 
 ! CALCULATE NITRATE REDUCTION UNDER ANAEROBIC CONDITIONS EXPLICITELY
 !*******************************************************************
 ! Denitrification rate constant of POP (disso) [1/sec]
 ! Store flux in array anaerob, for later computation of DIC and alkalinity.
 
-      DO  k=1,ks
-         IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
+    DO j = start_idx, end_idx
 
-         !!!! not N-cycle !!!!!!!!
-         IF (.not. l_N_cycle) THEN
-         IF (local_sediment_mem%powtra( j, k, ipowaox) < 2.e-6_wp) THEN
+        DO  k=1,ks ! Vectorized
+            IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
 
-           orgsed = max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
+                !!!! not N-cycle !!!!!!!!
+                IF (.not. l_N_cycle) THEN
+                    IF (local_sediment_mem%powtra( j, k, ipowaox) < 2.e-6_wp) THEN
 
-           posol = denit_sed * MIN(0.5_wp * local_sediment_mem%powtra(j, k, ipowno3)/(nitdem-rnit), orgsed)
-           local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12)-posol
-           local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+rcar*posol*pors2w(k)
+                        orgsed = max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
 
-           local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*(nitdem-ralk)*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)-(2._wp*n2prod - rnit)*posol*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipown2)=local_sediment_mem%powtra(j,k,ipown2)+n2prod*posol*pors2w(k)
-           local_sediment_mem%powh2obud(j,k)=local_sediment_mem%powh2obud(j,k)+0.5_wp*n2prod*posol*pors2w(k)
-           local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 2._wp*n2prod*posol*pors2w(k)
+                        posol = denit_sed * MIN(0.5_wp * local_sediment_mem%powtra(j, k, ipowno3)/(nitdem-rnit), orgsed)
+                        local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12)-posol
+                        local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+rcar*posol*pors2w(k)
 
-           local_sediment_mem%sedtend(j,k,isreminn) = posol*pors2w(k)/dtbgc
-         else
-           local_sediment_mem%sedtend(j,k,isreminn) = 0._wp
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*(nitdem-ralk)*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)-(2._wp*n2prod - rnit)*posol*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipown2)=local_sediment_mem%powtra(j,k,ipown2)+n2prod*posol*pors2w(k)
+                        local_sediment_mem%powh2obud(j,k)=local_sediment_mem%powh2obud(j,k)+0.5_wp*n2prod*posol*pors2w(k)
+                        local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 2._wp*n2prod*posol*pors2w(k)
 
-         ENDIF   ! oxygen <1.e-6
+                        local_sediment_mem%sedtend(j,k,isreminn) = posol*pors2w(k)/dtbgc
+                    ELSE
 
-         ELSE
+                        local_sediment_mem%sedtend(j,k,isreminn) = 0._wp
 
-         !!!! N-cycle !!!!!!!!
-         IF (local_sediment_mem%powtra( j, k, ipowaox) < o2thresh) THEN
-            orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
+                    END IF ! oxygen <1.e-6
 
-            ! o2 limitation identical for all suboxic processes
-            o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
+                ELSE
 
-            ! convert detritus in P-units to N-units for nitrogen cycle changes
-            ! convert to from solid to water
-            detn = max(0._wp,orgsed*rnit*pors2w(k))
+                    !!!! N-cycle !!!!!!!!
+                    IF (local_sediment_mem%powtra( j, k, ipowaox) < o2thresh) THEN
+                        orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
 
-            ! denitrification rate on NO3
-            rdnrn = o2lim*no3no2red *detn/(local_sediment_mem%powtra(j,k,ipowno3)+3.E-5_wp)
-            rdnra = o2lim*no3nh4red *detn/(local_sediment_mem%powtra(j,k,ipowno3)+3.E-5_wp)
+                        ! o2 limitation identical for all suboxic processes
+                        o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
 
-            no3rmax = rdnrn + rdnra                       ! max pot loss of NO3
+                        ! convert detritus in P-units to N-units for nitrogen cycle changes
+                        ! convert to from solid to water
+                        detn = max(0._wp,orgsed*rnit*pors2w(k))
 
-            IF(no3rmax > 0._wp) THEN
-               fdnrn = rdnrn/no3rmax                       ! fraction each process
-               fdnra = rdnra/no3rmax
+                        ! denitrification rate on NO3
+                        rdnrn = o2lim*no3no2red *detn/(local_sediment_mem%powtra(j,k,ipowno3)+3.E-5_wp)
+                        rdnra = o2lim*no3nh4red *detn/(local_sediment_mem%powtra(j,k,ipowno3)+3.E-5_wp)
 
-               !< implicit formulation to avoid neg. nitrate concentration
-               no3a = local_sediment_mem%powtra(j,k,ipowno3)/(1._wp +no3rmax)   ! max change in NO3
-               no3c_max = local_sediment_mem%powtra(j,k,ipowno3) - no3a         ! corresponding max NO3 loss
-               detc_max=  no3c_max*(fdnrn/rno3no2+fdnra/rno3nh4)  ! corresponding max change in det in water part
-               detc_act = min ( detn ,detc_max) ! convert solid to water part
+                        no3rmax = rdnrn + rdnra                       ! max pot loss of NO3
 
-               dnrn = fdnrn*detc_act             ! in P units in water part
-               dnra = fdnra*detc_act             ! in P untis in water part
+                        IF(no3rmax > 0._wp) THEN
+                            fdnrn = rdnrn/no3rmax                       ! fraction each process
+                            fdnra = rdnra/no3rmax
 
-               posol_nit = dnrn + dnra      ! change for DIC and PO4
+                            !< implicit formulation to avoid neg. nitrate concentration
+                            no3a = local_sediment_mem%powtra(j,k,ipowno3)/(1._wp +no3rmax)   ! max change in NO3
+                            no3c_max = local_sediment_mem%powtra(j,k,ipowno3) - no3a         ! corresponding max NO3 loss
+                            detc_max=  no3c_max*(fdnrn/rno3no2+fdnra/rno3nh4)  ! corresponding max change in det in water part
+                            detc_act = min ( detn ,detc_max) ! convert solid to water part
 
-               local_sediment_mem%sedlay(j,k,issso12) = local_sediment_mem%sedlay(j,k,issso12) -(dnrn + dnra)/pors2w(k)
+                            dnrn = fdnrn*detc_act             ! in P units in water part
+                            dnra = fdnra*detc_act             ! in P untis in water part
 
-               local_sediment_mem%powtra(j,k,ipowno3)= local_sediment_mem%powtra(j,k,ipowno3)    &    ! change in nitrate
+                            posol_nit = dnrn + dnra      ! change for DIC and PO4
+
+                            local_sediment_mem%sedlay(j,k,issso12) = local_sediment_mem%sedlay(j,k,issso12) -(dnrn + dnra)/pors2w(k)
+
+                            local_sediment_mem%powtra(j,k,ipowno3)= local_sediment_mem%powtra(j,k,ipowno3)    &    ! change in nitrate
                             &       -rno3no2*dnrn          &    ! from DNRN
                             &       -rno3nh4*dnra               ! from DNRA
 
-               local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4)    &    ! change in ammonium
+                            local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4)    &    ! change in ammonium
                             &       +rnit*dnrn             &    ! from DNRN
                             &       +86._wp*dnra                ! from DNRA
 
-               local_sediment_mem%powtra(j,k,ipowno2) = local_sediment_mem%powtra(j,k,ipowno2)   &    ! change in nitrite
-                             &       + rno3no2*dnrn             ! from DNRN
+                            local_sediment_mem%powtra(j,k,ipowno2) = local_sediment_mem%powtra(j,k,ipowno2)   &    ! change in nitrite
+                            &       + rno3no2*dnrn             ! from DNRN
 
-               local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)      &   ! change from DNRN and DNRA
-                           &       + rnit*dnrn              &   ! from DNRN
-                           &       + 86._wp*dnra            &   ! from DNRA
-                           &       - posol_nit
+                            local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)      &   ! change from DNRN and DNRA
+                            &       + rnit*dnrn              &   ! from DNRN
+                            &       + 86._wp*dnra            &   ! from DNRA
+                            &       - posol_nit
 
-               local_sediment_mem%pown2bud(j, k) = local_sediment_mem%pown2bud(j, k) - 70._wp*dnra
+                            local_sediment_mem%pown2bud(j, k) = local_sediment_mem%pown2bud(j, k) - 70._wp*dnra
 
+                            local_sediment_mem%powtra(j,k,ipowaph) = local_sediment_mem%powtra(j,k,ipowaph) + posol_nit
+                            local_sediment_mem%powtra(j,k,ipowaic) = local_sediment_mem%powtra(j,k,ipowaic) + rcar*posol_nit
+                            local_sediment_mem%powtra(j,k,ipowafe) = local_sediment_mem%powtra(j,k,ipowafe) + riron*posol_nit
 
-               local_sediment_mem%powtra(j,k,ipowaph) = local_sediment_mem%powtra(j,k,ipowaph) + posol_nit
-               local_sediment_mem%powtra(j,k,ipowaic) = local_sediment_mem%powtra(j,k,ipowaic) + rcar*posol_nit
-               local_sediment_mem%powtra(j,k,ipowafe) = local_sediment_mem%powtra(j,k,ipowafe) + riron*posol_nit
+                            local_sediment_mem%sedtend(j,k,ksdnrn)=dnrn/dtbgc
+                            local_sediment_mem%sedtend(j,k,ksdnra)=dnra/dtbgc
 
-               local_sediment_mem%sedtend(j,k,ksdnrn)=dnrn/dtbgc
-               local_sediment_mem%sedtend(j,k,ksdnra)=dnra/dtbgc
+                        ELSE
+                            local_sediment_mem%sedtend(j,k,ksdnrn)=0._wp
+                            local_sediment_mem%sedtend(j,k,ksdnra)=0._wp
+                            posol_nit = 0._wp
+                        END IF ! no3rmax > 0
 
-            ELSE
-               local_sediment_mem%sedtend(j,k,ksdnrn)=0._wp
-               local_sediment_mem%sedtend(j,k,ksdnra)=0._wp
-               posol_nit = 0._wp
-            ENDIF ! no3rmax > 0
+                    END IF ! oxygen <1.e-6
+                END IF ! l_N_cycle
+            END IF ! bolay
 
-         ENDIF   ! oxygen <1.e-6
-         ENDIF   ! l_N_cycle
-         ENDIF   ! bolay
-        ENDDO
+        END DO
+    END DO
 
+    !!!! N-cycle !!!!!!!!
+    IF (l_N_cycle) THEN
 
+        DO j = start_idx, end_idx
 
+            DO  k=1,ks ! Vectorized
+                IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
 
+                    ! DENITRIFICATION on NO2
+                    IF (local_sediment_mem%powtra(j,k,ipowaox) < o2den_lim) THEN
+                        o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
+                        orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
+                        detn = orgsed*rnit*pors2w(k)   ! converted to water equiv. part
+                        no2rmax = o2lim*no2denit*detn/(local_sediment_mem%powtra(j,k,ipowno2)+0.1E-6_wp)
 
-      !!!! N-cycle !!!!!!!!
-      IF (l_N_cycle) THEN
-      DO  k=1,ks
-         IF (local_bgc_mem%bolay( j) .GT. 0._wp) THEN
+                        ! implicit formulation to avoid neg. nitrite concentration
+                        no2a = local_sediment_mem%powtra(j,k,ipowno2)/(1._wp+no2rmax)
 
-! DENITRIFICATION on NO2
-         IF (local_sediment_mem%powtra(j,k,ipowaox) < o2den_lim) THEN
-            o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
-            orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
-            detn = orgsed*rnit*pors2w(k)   ! converted to water equiv. part
-            no2rmax = o2lim*no2denit*detn/(local_sediment_mem%powtra(j,k,ipowno2)+0.1E-6_wp)
+                        no2c_max = local_sediment_mem%powtra(j,k,ipowno2) -no2a          ! maximal NO2 loss
+                        detc_max=  no2c_max/rno2n2                    ! corresponding max change in det;
+                        ! rno2n2 conversion to P units
 
-            ! implicit formulation to avoid neg. nitrite concentration
-            no2a = local_sediment_mem%powtra(j,k,ipowno2)/(1._wp+no2rmax)
+                        nrn2 = min (orgsed*pors2w(k),detc_max)        ! in P units
+                        ! changes in detritus in P-units
+                        posol = nrn2
 
-            no2c_max = local_sediment_mem%powtra(j,k,ipowno2) -no2a          ! maximal NO2 loss
-            detc_max=  no2c_max/rno2n2                    ! corresponding max change in det;
-                                                          ! rno2n2 conversion to P units
+                        local_sediment_mem%powtra(j,k,ipowno2)= local_sediment_mem%powtra(j,k,ipowno2) - rno2n2*nrn2  ! change in ammonium
+                        ! from nitrite reduction to N2; NRN2
 
-            nrn2 = min (orgsed*pors2w(k),detc_max)        ! in P units
-            ! changes in detritus in P-units
-            posol = nrn2
+                        local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4) + rnit*nrn2    ! change in ammonium
+                        ! from nitrite reduction to N2; NRN2
 
-            local_sediment_mem%powtra(j,k,ipowno2)= local_sediment_mem%powtra(j,k,ipowno2) - rno2n2*nrn2  ! change in ammonium
-                                                                    ! from nitrite reduction to N2; NRN2
+                        local_sediment_mem%powtra(j,k,ipown2)= local_sediment_mem%powtra(j,k,ipown2) + rno2n2*nrn2/2._wp
 
-            local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4) + rnit*nrn2    ! change in ammonium
-                                                                    ! from nitrite reduction to N2; NRN2
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal) + alk_nrn2*nrn2 - posol
+                        local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k)  + (alk_nrn2-rnit)*nrn2
 
-            local_sediment_mem%powtra(j,k,ipown2)= local_sediment_mem%powtra(j,k,ipown2) + rno2n2*nrn2/2._wp
+                        local_sediment_mem%powh2obud(j,k)= local_sediment_mem%powh2obud(j,k) + rno2n2*nrn2*0.25_wp
+                        ! now change in DIC, PO4 and Det in Sediment
+                        local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12) -posol/pors2w(k)
 
-            local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal) + alk_nrn2*nrn2 - posol
-            local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k)  + (alk_nrn2-rnit)*nrn2
+                        local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol
+                        local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+rcar*posol
+                        local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+riron*posol
 
-            local_sediment_mem%powh2obud(j,k)= local_sediment_mem%powh2obud(j,k) + rno2n2*nrn2*0.25_wp
-            ! now change in DIC, PO4 and Det in Sediment
-            local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12) -posol/pors2w(k)
+                        local_sediment_mem%sedtend(j,k,ksnrn2)=nrn2/(dtbgc*pors2w(k)) ! change in ssso12; P units
+                    ELSE
+                        local_sediment_mem%sedtend(j,k,ksnrn2) = 0._wp
+                    END IF ! oxygen <1.e-6
 
-            local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol
-            local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+rcar*posol
-            local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+riron*posol
+                    ! ANAMMOX on NO2 and NH4
+                    IF (local_sediment_mem%powtra(j,k,ipowaox) < o2thresh) THEN
 
-            local_sediment_mem%sedtend(j,k,ksnrn2)=nrn2/(dtbgc*pors2w(k)) ! change in ssso12; P units
-         ELSE
-            local_sediment_mem%sedtend(j,k,ksnrn2) = 0._wp
-         ENDIF   ! oxygen <1.e-6
+                        nh4a = max(0._wp,local_sediment_mem%powtra(j,k,ipownh4))
+                        no2a = max(0._wp,local_sediment_mem%powtra(j,k,ipowno2))
 
-! ANAMMOX on NO2 and NH4
-         IF (local_sediment_mem%powtra(j,k,ipowaox) < o2thresh) THEN
+                        o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
+                        anam = o2lim*anamoxra*no2a/(no2a+bkno2)
 
-            nh4a = max(0._wp,local_sediment_mem%powtra(j,k,ipownh4))
-            no2a = max(0._wp,local_sediment_mem%powtra(j,k,ipowno2))
+                        nh4n= nh4a/(1._wp + anam)
+                        anamox = nh4a - nh4n
+                        anamox = min(anamox,no2a/1.3_wp)
 
-            o2lim = 1._wp - max(0._wp,local_sediment_mem%powtra(j,k, ipowaox)/o2thresh)
-            anam = o2lim*anamoxra*no2a/(no2a+bkno2)
+                        local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4) -anamox
 
-            nh4n= nh4a/(1._wp + anam)
-            anamox = nh4a - nh4n
-            anamox = min(anamox,no2a/1.3_wp)
+                        local_sediment_mem%powtra(j,k,ipowno2) =local_sediment_mem%powtra(j,k,ipowno2) - 1.3_wp*anamox     ! from anamox
+                        local_sediment_mem%powtra(j,k,ipown2)= local_sediment_mem%powtra(j,k,ipown2) + anamox              ! from anamox
+                        local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3) + 0.3_wp*anamox
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal) - 0.3_wp*anamox
 
-            local_sediment_mem%powtra(j,k,ipownh4)= local_sediment_mem%powtra(j,k,ipownh4) -anamox
+                        ! loss of Os from NO2 - gain NO3 - 0.5 from NH4 =1.3 - 0.3*1.5- 0.5 = +0.35
+                        local_sediment_mem%powh2obud(j,k)= local_sediment_mem%powh2obud(j,k) + anamox*0.35_wp
 
-            local_sediment_mem%powtra(j,k,ipowno2) =local_sediment_mem%powtra(j,k,ipowno2) - 1.3_wp*anamox     ! from anamox
-            local_sediment_mem%powtra(j,k,ipown2)= local_sediment_mem%powtra(j,k,ipown2) + anamox              ! from anamox
-            local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3) + 0.3_wp*anamox
-            local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal) - 0.3_wp*anamox
+                        local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 1.7_wp*anamox ! alk is unchanged, but for alk mass we need anammox
 
-            ! loss of Os from NO2 - gain NO3 - 0.5 from NH4 =1.3 - 0.3*1.5- 0.5 = +0.35
-            local_sediment_mem%powh2obud(j,k)= local_sediment_mem%powh2obud(j,k) + anamox*0.35_wp
+                        local_sediment_mem%sedtend(j,k,ksanam)=2.0_wp*anamox / dtbgc  ! if given in TgN must be doubled
+                    ELSE
+                        local_sediment_mem%sedtend(j,k,ksanam)=0._wp
+                    END IF ! oxygen <1.e-6
+                END IF ! bolay
 
-            local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 1.7_wp*anamox ! alk is unchanged, but for alk mass we need anammox
+            END DO
 
-            local_sediment_mem%sedtend(j,k,ksanam)=2.0_wp*anamox / dtbgc  ! if given in TgN must be doubled
-         ELSE
-            local_sediment_mem%sedtend(j,k,ksanam)=0._wp
-         ENDIF   ! oxygen <1.e-6
+        END DO
 
-         ENDIF   ! bolay
-      ENDDO
-      ENDIF
-      !!!! N-cycle !!!!!!!!
+    END IF
+    !!!! N-cycle !!!!!!!!
 
+    ! sulphate reduction in sediments
+    ! Denitrification rate constant of POP (disso) [1/sec]
+    DO j = start_idx, end_idx
 
+        DO  k=1,ks ! Vectorized
+            IF (local_bgc_mem%bolay( j) > 0._wp) THEN
+                IF (.not. l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<1.e-6_wp .or. &
+                & l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<o2den_lim .and. &
+                & local_sediment_mem%powtra(j,k,ipowno3) < 30.e-6_wp) THEN
 
-! sulphate reduction in sediments
-! Denitrification rate constant of POP (disso) [1/sec]
+                    orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
+                    ! reduced by factor 100
+                    sssnew = orgsed/(1._wp + sred_sed)
+                    posol=orgsed - sssnew   ! change for org sed.
 
-      DO  k=1,ks
-         IF (local_bgc_mem%bolay( j) > 0._wp) THEN
-         IF (.not. l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<1.e-6_wp .or. &
-            & l_N_cycle .and. local_sediment_mem%powtra(j,k,ipowaox)<o2den_lim .and. &
-            & local_sediment_mem%powtra(j,k,ipowno3) < 30.e-6_wp) THEN
+                    local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12)-posol
+                    local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+posol*pors2w(k)*rcar
+                    local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol*pors2w(k)
+                    local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
 
-           orgsed=max(0._wp,local_sediment_mem%sedlay(j,k,issso12))
-           ! reduced by factor 100
-           sssnew = orgsed/(1._wp + sred_sed)
-           posol=orgsed - sssnew   ! change for org sed.
+                    IF (l_N_cycle) THEN
+                        ! according to Thamdrup ammonium might be oxidized by sulfur to form n2
+                        ! no change in water  and a smaler (32 instead of 48) alk change
+                        local_sediment_mem%powtra(j,k,ipown2) = local_sediment_mem%powtra(j,k,ipown2) + 0.5_wp*rnit*posol*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaal) = local_sediment_mem%powtra(j,k,ipowaal) + posol*(2._wp*rnit - 1._wp)*pors2w(k) ! alk change is +32
+                        local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j, k) +3._wp*posol*rnit*pors2w(k)
+                        local_sediment_mem%powh2obud(j,k) = local_sediment_mem%powh2obud(j,k)-posol*(ro2ammo+0.5_wp*rnit)*pors2w(k)
+                    ELSE
+                        local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)+posol*rnit*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*ralk*pors2w(k)
+                        local_sediment_mem%powtra(j,k,ipowh2s) = local_sediment_mem%powtra(j,k,ipowh2s) + posol*pors2w(k)*ralk
+                        local_sediment_mem%powh2obud(j,k)=local_sediment_mem%powh2obud(j,k)-posol*ro2ut*pors2w(k)
+                        local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 2._wp*ralk*posol*pors2w(k)
+                    END IF
 
-           local_sediment_mem%sedlay(j,k,issso12)=local_sediment_mem%sedlay(j,k,issso12)-posol
-           local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+posol*pors2w(k)*rcar
-           local_sediment_mem%powtra(j,k,ipowaph)=local_sediment_mem%powtra(j,k,ipowaph)+posol*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipowafe)=local_sediment_mem%powtra(j,k,ipowafe)+ posol*riron*pors2w(k)
+                    local_sediment_mem%sedtend(j,k,isremins) = posol*pors2w(k)/dtbgc
+                ELSE
+                    local_sediment_mem%sedtend(j,k,isremins) = 0._wp
+                END IF ! oxygen <1.e-6
 
-           IF (l_N_cycle) THEN
-              ! according to Thamdrup ammonium might be oxidized by sulfur to form n2
-              ! no change in water  and a smaler (32 instead of 48) alk change
-              local_sediment_mem%powtra(j,k,ipown2) = local_sediment_mem%powtra(j,k,ipown2) + 0.5_wp*rnit*posol*pors2w(k)
-              local_sediment_mem%powtra(j,k,ipowaal) = local_sediment_mem%powtra(j,k,ipowaal) + posol*(2._wp*rnit - 1._wp)*pors2w(k) ! alk change is +32
-              local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j, k) +3._wp*posol*rnit*pors2w(k)
-              local_sediment_mem%powh2obud(j,k) = local_sediment_mem%powh2obud(j,k)-posol*(ro2ammo+0.5_wp*rnit)*pors2w(k)
-           ELSE
-              local_sediment_mem%powtra(j,k,ipowno3)=local_sediment_mem%powtra(j,k,ipowno3)+posol*rnit*pors2w(k)
-              local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+posol*ralk*pors2w(k)
-              local_sediment_mem%powtra(j,k,ipowh2s) = local_sediment_mem%powtra(j,k,ipowh2s) + posol*pors2w(k)*ralk
-              local_sediment_mem%powh2obud(j,k)=local_sediment_mem%powh2obud(j,k)-posol*ro2ut*pors2w(k)
-              local_sediment_mem%pown2bud(j,k) = local_sediment_mem%pown2bud(j,k) + 2._wp*ralk*posol*pors2w(k)
-           ENDIF
+            END IF ! bolay
 
-           local_sediment_mem%sedtend(j,k,isremins) = posol*pors2w(k)/dtbgc
-         else
-           local_sediment_mem%sedtend(j,k,isremins) = 0._wp
-         ENDIF   ! oxygen <1.e-6
+        END DO
 
-         endif   ! bolay
-       ENDDO
-!!! End remineralization POC
-
-
-
+    END DO
+    !!! End remineralization POC
 
 ! CALCULATE SILICATE-OPAL CYCLE
 !******************************************************************
@@ -494,28 +499,31 @@ CONTAINS
 ! Calculate new solid sediment.
 ! Update pore water concentration from new undersaturation.
 
-! Add sediment flux of opal
-         IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
-
-             local_sediment_mem%sedlay(j,1,issssil)=                                     &
-      &      local_sediment_mem%sedlay(j,1,issssil)+local_sediment_mem%silpro(j)/(porsol(1)*seddw(1))
+    DO j = start_idx, end_idx
+        ! Add sediment flux of opal
+        IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+            local_sediment_mem%sedlay(j,1,issssil) = &
+            & local_sediment_mem%sedlay(j,1,issssil)+local_sediment_mem%silpro(j)/(porsol(1)*seddw(1))
             ! silpro(j)=0._wp
-          ENDIF
+        END IF
+    END DO
 
+    DO j = start_idx, end_idx
 
-      DO  k=1,ks
-         IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
-            undsa=MAX(silsat-local_sediment_mem%powtra(j,k,ipowasi),0._wp)
-! explixit version
-! new implicit within layer
-             sssnew = local_sediment_mem%sedlay(j,k,issssil)/(1._wp+ disso_op*undsa)
-             posol =  local_sediment_mem%sedlay(j,k,issssil) - sssnew
+        DO  k=1,ks ! Vecorized
+            IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+                undsa=MAX(silsat-local_sediment_mem%powtra(j,k,ipowasi),0._wp)
+                ! explixit version
+                ! new implicit within layer
+                sssnew = local_sediment_mem%sedlay(j,k,issssil)/(1._wp+ disso_op*undsa)
+                posol =  local_sediment_mem%sedlay(j,k,issssil) - sssnew
 
-             local_sediment_mem%sedlay(j,k,issssil)=local_sediment_mem%sedlay(j,k,issssil)-posol
-             local_sediment_mem%powtra(j,k,ipowasi)=local_sediment_mem%powtra(j,k,ipowasi)+posol*pors2w(k)
-         ENDIF
-      ENDDO
+                local_sediment_mem%sedlay(j,k,issssil)=local_sediment_mem%sedlay(j,k,issssil)-posol
+                local_sediment_mem%powtra(j,k,ipowasi)=local_sediment_mem%powtra(j,k,ipowasi)+posol*pors2w(k)
+            END IF
+        END DO
 
+    END DO
 !!! End dissolution opal
 
 ! CALCULATE CaCO3-CO3 CYCLE AND SIMULTANEOUS CO3-UNDERSATURATION DIFFUSION
@@ -524,76 +532,80 @@ CONTAINS
 ! FROM CHANGED ALKALINITY (NITRATE PRODUCTION DURING REMINERALISATION)
 ! AND DIC GAIN. ITERATE 5 TIMES. THIS CHANGES PH (local_sediment_mem%sedhpl) OF SEDIMENT.
 
+    DO j = start_idx, end_idx
 
-! Add sediment flux of CaCO3
-         IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
-            local_sediment_mem%sedlay(j,1,isssc12)=                                     &
-     &      local_sediment_mem%sedlay(j,1,isssc12)+local_sediment_mem%prcaca(j)/(porsol(1)*seddw(1))
-         !   local_sediment_mem%prcaca(j)=0._wp
-         ENDIF
+        ! Add sediment flux of CaCO3
+        IF(local_bgc_mem%bolay(j).GT.0._wp) THEN
+            local_sediment_mem%sedlay(j,1,isssc12) = &
+            &      local_sediment_mem%sedlay(j,1,isssc12)+local_sediment_mem%prcaca(j)/(porsol(1)*seddw(1))
+            !   local_sediment_mem%prcaca(j)=0._wp
+        END IF
 
+    END DO
 
-      DO k = 1, ks
+! ******************************************** POWCAR ********************************************
 
-         IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
-               local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic),local_bgc_mem%ak13(j,kbo(j)),&
-        &                             local_bgc_mem%ak23(j,kbo(j)),local_bgc_mem%akw3(j,kbo(j)),local_bgc_mem%aks3(j,kbo(j)),&
-        &                             local_bgc_mem%akf3(j,kbo(j)),local_bgc_mem%aksi3(j,kbo(j)),local_bgc_mem%ak1p3(j,kbo(j)),&
-        &                             local_bgc_mem%ak2p3(j,kbo(j)),local_bgc_mem%ak3p3(j,kbo(j)),psao(j,kbo(j)),&
-        &                             local_bgc_mem%akb3(j,kbo(j)),local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph),&
-        &                             local_sediment_mem%powtra(j,k,ipowaal))
+    DO j = start_idx, end_idx
+
+        DO k = 1, ks ! NOT VECTORIZED
+
+            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+                local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic),local_bgc_mem%ak13(j,kbo(j)),&
+                &                             local_bgc_mem%ak23(j,kbo(j)),local_bgc_mem%akw3(j,kbo(j)),local_bgc_mem%aks3(j,kbo(j)),&
+                &                             local_bgc_mem%akf3(j,kbo(j)),local_bgc_mem%aksi3(j,kbo(j)),local_bgc_mem%ak1p3(j,kbo(j)),&
+                &                             local_bgc_mem%ak2p3(j,kbo(j)),local_bgc_mem%ak3p3(j,kbo(j)),psao(j,kbo(j)),&
+                &                             local_bgc_mem%akb3(j,kbo(j)),local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph),&
+                &                             local_sediment_mem%powtra(j,k,ipowaal))
 
                 powcar(k)  = local_sediment_mem%powtra(j,k,ipowaic) / (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak23(j,kbo(j)) &
-        &                    * (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak13(j,kbo(j))))
-         ENDIF
-      END DO
+                &                    * (1._wp + local_sediment_mem%sedhpl(j,k)/local_bgc_mem%ak13(j,kbo(j))))
+            END IF
 
+        END DO
 
+        ! Evaluate boundary conditions for sediment-water column exchange.
+        ! Current undersaturation of bottom water: sedb(i,0) and
 
-! Evaluate boundary conditions for sediment-water column exchange.
-! Current undersaturation of bottom water: sedb(i,0) and
+        ! CO3 saturation concentration is aksp/calcon as in mo_carchm.f90
+        ! (calcon defined in mo_ini_bgc.f90 with 1.03e-2; 1/calcon =~ 97.)
 
-! CO3 saturation concentration is aksp/calcon as in mo_carchm.f90
-! (calcon defined in mo_ini_bgc.f90 with 1.03e-2; 1/calcon =~ 97.)
+        ! Calculate updated degradation rate from updated undersaturation.
+        ! Calculate new solid sediment.
+        ! No update of powcar pore water concentration from new undersaturation so far.
+        ! Instead, only update DIC, and, of course, alkalinity.
+        ! This also includes gains from aerobic and anaerobic decomposition.
 
-! Calculate updated degradation rate from updated undersaturation.
-! Calculate new solid sediment.
-! No update of powcar pore water concentration from new undersaturation so far.
-! Instead, only update DIC, and, of course, alkalinity.
-! This also includes gains from aerobic and anaerobic decomposition.
+        DO  k=1,ks ! Vectorized
+            IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
 
-      DO  k=1,ks
-         IF((local_bgc_mem%bolay(j).GT.0._wp).and.(pddpo(j,1)>EPSILON(0.5_wp))) THEN
+                satlev=local_bgc_mem%aksp(j,kbo(j))/calcon
+                !in oversaturated ( wrt calcite, powcar> satlev) water the "undersaturation" is negativ.
+                !there is evidence that in warm water like the Mediterranean spontaneous
+                !adsorption to existing calcareous shells happens. In most parts of the
+                !ocean this seems to be unlikely. Thus, we restrict on real undersaturation:
 
-            satlev=local_bgc_mem%aksp(j,kbo(j))/calcon
-!in oversaturated ( wrt calcite, powcar> satlev) water the "undersaturation" is negativ.
-!there is evidence that in warm water like the Mediterranean spontaneous
-!adsorption to existing calcareous shells happens. In most parts of the
-!ocean this seems to be unlikely. Thus, we restrict on real undersaturation:
+                undsa = MAX(satlev - powcar( k), 0._wp)
+                sssnew = local_sediment_mem%sedlay(j,k,isssc12)/(1._wp+ disso_cal*undsa)
+                posol =  local_sediment_mem%sedlay(j,k,isssc12) - sssnew
 
-          undsa = MAX(satlev - powcar( k), 0._wp)
-          sssnew = local_sediment_mem%sedlay(j,k,isssc12)/(1._wp+ disso_cal*undsa)
-          posol =  local_sediment_mem%sedlay(j,k,isssc12) - sssnew
+                local_sediment_mem%sedlay(j,k,isssc12)=local_sediment_mem%sedlay(j,k,isssc12)-posol
+                local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+posol*pors2w(k)
+                local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+2._wp*posol*pors2w(k)
+            END IF
+        END DO
 
-           local_sediment_mem%sedlay(j,k,isssc12)=local_sediment_mem%sedlay(j,k,isssc12)-posol
-           local_sediment_mem%powtra(j,k,ipowaic)=local_sediment_mem%powtra(j,k,ipowaic)+posol*pors2w(k)
-           local_sediment_mem%powtra(j,k,ipowaal)=local_sediment_mem%powtra(j,k,ipowaal)+2._wp*posol*pors2w(k)
-         ENDIF
-      ENDDO
-   ENDDO
-   !$ACC END PARALLEL
+    END DO
+! ******************************************** POWCAR ********************************************
 
-   CALL dipowa(local_bgc_mem, local_sediment_mem, start_idx,end_idx, lacc=lzacc)
+    CALL dipowa(local_bgc_mem, local_sediment_mem, start_idx,end_idx, lacc=lzacc)
 
-   !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-   !$ACC LOOP GANG VECTOR
-   DO j = start_idx, end_idx
+    DO j = start_idx, end_idx ! Vectorized
+
         local_sediment_mem%sedlay(j,1,issster) = local_sediment_mem%sedlay(j,1,issster)                 &
-             &                + local_sediment_mem%produs(j)/(porsol(1)*seddw(1))
-   ENDDO
-   !$ACC END PARALLEL
+        &                + local_sediment_mem%produs(j)/(porsol(1)*seddw(1))
+    END DO
 
-   END SUBROUTINE POWACH
+END SUBROUTINE POWACH
 
 
 SUBROUTINE powach_impl(local_bgc_mem, local_sediment_mem, start_idx, end_idx, psao )
@@ -652,6 +664,15 @@ SUBROUTINE powach_impl(local_bgc_mem, local_sediment_mem, start_idx, end_idx, ps
   !
   !----------------------------------------------------------------------
   !
+
+  LOGICAL, SAVE :: printFlag = .TRUE.
+
+  IF(printFlag) THEN
+    WRITE(*,*) "RSE: CALL POWACH_IMPL"
+    printFlag = .FALSE.
+    STOP
+  END IF
+
   kbo => local_bgc_mem%kbo
 
   local_sediment_mem%seddenit(:) = 0._wp
