@@ -16,7 +16,7 @@ MODULE mo_powach
  USE mo_kind, ONLY        : wp
  USE mo_sedmnt_diffusion, ONLY: powadi, dipowa
  USE mo_hamocc_nml,       ONLY: ks,porwat
- USE mo_carchm,           ONLY: update_hi
+ USE mo_carchm,           ONLY: update_hi, update_hi_sub
 
  USE mo_bgc_memory_types, ONLY  : t_bgc_memory, t_sediment_memory
  USE mo_fortran_tools, ONLY     : set_acc_host_or_device
@@ -127,6 +127,10 @@ CONTAINS
    !! Vectorization local variables
    LOGICAL :: vmaskBolay(start_idx:end_idx)
    LOGICAL :: vmaskBolayPDDPO(start_idx:end_idx)
+   REAL(wp) :: arg_ak13(start_idx:end_idx), arg_ak23(start_idx:end_idx), arg_akw3(start_idx:end_idx)
+   REAL(wp) :: arg_aks3(start_idx:end_idx), arg_akf3(start_idx:end_idx), arg_aksi3(start_idx:end_idx)
+   REAL(wp) :: arg_ak1p3(start_idx:end_idx), arg_ak2p3(start_idx:end_idx), arg_ak3p3(start_idx:end_idx)
+   REAL(wp) :: arg_psao(start_idx:end_idx), arg_akb3(start_idx:end_idx)
 
    CALL set_acc_host_or_device(lzacc, lacc)
 
@@ -144,6 +148,24 @@ CONTAINS
         vmaskBolayPDDPO(j) = .TRUE.
     ELSE
         vmaskBolayPDDPO(j) = .FALSE.
+    END IF
+   END DO
+
+   DO j = start_idx, end_idx
+    IF(vmaskBolayPDDPO(j)) THEN
+
+        arg_ak13(j)  = local_bgc_mem%ak13(j,kbo(j))
+        arg_ak23(j)  = local_bgc_mem%ak23(j,kbo(j))
+        arg_akw3(j)  = local_bgc_mem%akw3(j,kbo(j))
+        arg_aks3(j)  = local_bgc_mem%aks3(j,kbo(j))
+        arg_akf3(j)  = local_bgc_mem%akf3(j,kbo(j))
+        arg_aksi3(j) = local_bgc_mem%aksi3(j,kbo(j))
+        arg_ak1p3(j) = local_bgc_mem%ak1p3(j,kbo(j))
+        arg_ak2p3(j) = local_bgc_mem%ak2p3(j,kbo(j))
+        arg_ak3p3(j) = local_bgc_mem%ak3p3(j,kbo(j))
+        arg_psao(j)  = psao(j,kbo(j))
+        arg_akb3(j)  = local_bgc_mem%akb3(j,kbo(j))
+
     END IF
    END DO
 
@@ -570,23 +592,51 @@ CONTAINS
 
 ! ******************************************** POWCAR ********************************************
 
+#if 0
+
     !NEC$ nomove
     DO k = 1, ks
 
         DO j = start_idx, end_idx
 
+#if 0
             IF(vmaskBolayPDDPO(j)) THEN
-                local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic),local_bgc_mem%ak13(j,kbo(j)),&
-                &                             local_bgc_mem%ak23(j,kbo(j)),local_bgc_mem%akw3(j,kbo(j)),local_bgc_mem%aks3(j,kbo(j)),&
-                &                             local_bgc_mem%akf3(j,kbo(j)),local_bgc_mem%aksi3(j,kbo(j)),local_bgc_mem%ak1p3(j,kbo(j)),&
-                &                             local_bgc_mem%ak2p3(j,kbo(j)),local_bgc_mem%ak3p3(j,kbo(j)),psao(j,kbo(j)),&
-                &                             local_bgc_mem%akb3(j,kbo(j)),local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph),&
-                &                             local_sediment_mem%powtra(j,k,ipowaal))
+                local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic), &
+                & local_bgc_mem%ak13(j,kbo(j)), local_bgc_mem%ak23(j,kbo(j)),local_bgc_mem%akw3(j,kbo(j)),local_bgc_mem%aks3(j,kbo(j)),&
+                & local_bgc_mem%akf3(j,kbo(j)),local_bgc_mem%aksi3(j,kbo(j)),local_bgc_mem%ak1p3(j,kbo(j)), local_bgc_mem%ak2p3(j,kbo(j)), &
+                & local_bgc_mem%ak3p3(j,kbo(j)),psao(j,kbo(j)), local_bgc_mem%akb3(j,kbo(j)), &
+                & local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph), local_sediment_mem%powtra(j,k,ipowaal))
             END IF
+#else
+            IF(vmaskBolayPDDPO(j)) THEN
+                local_sediment_mem%sedhpl(j,k)= update_hi(local_sediment_mem%sedhpl(j,k),local_sediment_mem%powtra(j,k,ipowaic), &
+                & arg_ak13(j), arg_ak23(j), arg_akw3(j), arg_aks3(j), &
+                & arg_akf3(j), arg_aksi3(j), arg_ak1p3(j), arg_ak2p3(j), &
+                & arg_ak3p3(j), arg_psao(j), arg_akb3(j), &
+                & local_sediment_mem%powtra(j,k,ipowasi),local_sediment_mem%powtra(j,k,ipowaph), local_sediment_mem%powtra(j,k,ipowaal))
+            END IF
+#endif
 
         END DO
 
     END DO
+
+#else
+
+    !NEC$ nomove
+    DO k = 1, ks
+
+        CALL update_hi_sub(local_sediment_mem%sedhpl(start_idx:end_idx,k),local_sediment_mem%powtra(start_idx:end_idx,k,ipowaic), &
+             & arg_ak13(start_idx:end_idx), arg_ak23(start_idx:end_idx), arg_akw3(start_idx:end_idx), arg_aks3(start_idx:end_idx), &
+             & arg_akf3(start_idx:end_idx), arg_aksi3(start_idx:end_idx), arg_ak1p3(start_idx:end_idx), arg_ak2p3(start_idx:end_idx), &
+             & arg_ak3p3(start_idx:end_idx), arg_psao(start_idx:end_idx), arg_akb3(start_idx:end_idx), &
+             & local_sediment_mem%powtra(start_idx:end_idx,k,ipowasi),local_sediment_mem%powtra(start_idx:end_idx,k,ipowaph), &
+             & local_sediment_mem%powtra(start_idx:end_idx,k,ipowaal), &
+             & local_sediment_mem%sedhpl(start_idx:end_idx,k), start_idx, end_idx, vmaskBolayPDDPO(start_idx:end_idx))
+
+    END DO
+
+#endif
 
     !NEC$ nomove
     DO k = 1, ks
