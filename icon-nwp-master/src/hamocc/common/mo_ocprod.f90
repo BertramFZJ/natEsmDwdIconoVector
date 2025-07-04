@@ -101,7 +101,7 @@ SUBROUTINE ocprod (local_bgc_mem, klev,start_idx, end_idx, ptho, pddpo, za, ptie
 
  ! N-cycle variables
   REAL(wp) :: limp, limf,limn, po4lim, felim, no3lim, nh4lim, hib
-  REAL(wp) :: nfrac, detn, remin_nit, rdnrn, rdnra, fdnrn, fdnra, no3rmax
+  REAL(wp) :: nfrac(start_idx:end_idx), detn, remin_nit, rdnrn, rdnra, fdnrn, fdnra, no3rmax
   REAL(wp) :: no3a, no3c_max, detc_max, detc_act, n2ormax
   REAL(wp) :: anam, nh4n, nh4a, annpot, fammox, fnitox, newammo
   REAL(wp) :: newnitr, oxpot, nitox, ammox, remsulf, detnew, ntotlim
@@ -179,9 +179,18 @@ SUBROUTINE ocprod (local_bgc_mem, klev,start_idx, end_idx, ptho, pddpo, za, ptie
 
           phosy = MIN(po4lim, ntotlim/rnit, felim/riron)
 
+#if 0
           nfrac = 1._wp
           if(phosy .gt. 1.E-18_wp) nfrac= nh4lim/ntotlim     ! fraction of photosynthesis on NH4
           limn = limn*(1._wp - nfrac) + nfrac*xn/( xa + bknh4)
+#else
+          if(phosy .gt. 1.E-18_wp) then
+            nfrac(j)= nh4lim/ntotlim     ! fraction of photosynthesis on NH4
+          else
+            nfrac(j) = 1._wp
+          end if
+          limn = limn*(1._wp - nfrac(j)) + nfrac(j)*xn/( xa + bknh4)
+#endif
 
 
           IF ( limf .le. limp .and. limf .le. limn) THEN
@@ -234,9 +243,9 @@ SUBROUTINE ocprod (local_bgc_mem, klev,start_idx, end_idx, ptho, pddpo, za, ptie
        IF (l_N_cycle) THEN
           local_bgc_mem%bgctra(j,k,iammo) =  local_bgc_mem%bgctra(j,k,iammo)                            &
                    &                + (graton + ecan*zoomor)*rnit                   & !  all remineralization products added to NH4
-                   &                - nfrac*phosy*rnit
+                   &                - nfrac(j)*phosy*rnit
 
-          local_bgc_mem%bgctra(j,k,iano3) = local_bgc_mem%bgctra(j,k,iano3) - (1._wp - nfrac)*phosy*rnit
+          local_bgc_mem%bgctra(j,k,iano3) = local_bgc_mem%bgctra(j,k,iano3) - (1._wp - nfrac(j))*phosy*rnit
        ELSE
           local_bgc_mem%bgctra(j,k,iano3) = local_bgc_mem%bgctra(j,k,iano3) &
         &        + (-phosy+graton+ecan*zoomor)*rnit
@@ -263,14 +272,14 @@ SUBROUTINE ocprod (local_bgc_mem, klev,start_idx, end_idx, ptho, pddpo, za, ptie
 
           ! LR: Why is rnit used here and not ralk ?!
           local_bgc_mem%bgctra(j,k,ialkali) = local_bgc_mem%bgctra(j,k,ialkali)   &    ! ocean with NH4 - alkalinity change
-                    &           - nfrac*phosy*rnit                          &    ! alk decrease if OM from NH4
-                    &           + (1.-nfrac)*phosy*rnit                     &    ! alk increase if OM from NO3
+                    &           - nfrac(j)*phosy*rnit                          &    ! alk decrease if OM from NH4
+                    &           + (1.-nfrac(j))*phosy*rnit                     &    ! alk increase if OM from NO3
                     &           + rnit*(graton + ecan*zoomor)               &    ! remin all to NH4
                     &           - (graton - phosy + ecan*zoomor)            &    ! PO4 changes
                     &           - 2._wp*delcar
 
           local_bgc_mem%bgctra(j,k,ioxygen) = local_bgc_mem%bgctra(j,k,ioxygen)             &
-                   &            + phosy*(ro2ut*(1._wp - nfrac) + ro2ammo*nfrac)       & ! phosy from NO3 produces ro2ut, from NH4 only ro2ammo
+                   &            + phosy*(ro2ut*(1._wp - nfrac(j)) + ro2ammo*nfrac(j))       & ! phosy from NO3 produces ro2ut, from NH4 only ro2ammo
                    &            - (graton + ecan*zoomor)*ro2ammo                      ! since all re
 
        ELSE
@@ -316,7 +325,7 @@ SUBROUTINE ocprod (local_bgc_mem, klev,start_idx, end_idx, ptho, pddpo, za, ptie
        local_bgc_mem%bgctend(j,k,kdelsil) = delsil * inv_dtbgc
        local_bgc_mem%bgctend(j,k,kdelcar) = delcar * inv_dtbgc
        local_bgc_mem%bgctend(j,k,keuexp) = export * inv_dtbgc
-       if (l_N_cycle) local_bgc_mem%bgctend(j,k,kgppnh) = nfrac*phosy * inv_dtbgc
+       if (l_N_cycle) local_bgc_mem%bgctend(j,k,kgppnh) = nfrac(j)*phosy * inv_dtbgc
 
       !===== DMS ===
 
