@@ -14,7 +14,7 @@
 MODULE mo_powach
 
  USE mo_kind, ONLY        : wp
- USE mo_sedmnt_diffusion, ONLY: powadi, dipowa
+ USE mo_sedmnt_diffusion, ONLY: powadi, dipowa, dipowa_vector
  USE mo_hamocc_nml,       ONLY: ks,porwat
  USE mo_carchm,           ONLY: update_hi, update_hi_sub
 
@@ -689,7 +689,11 @@ CONTAINS
     END DO
 ! ******************************************** POWCAR ********************************************
 
+#if 0
     CALL dipowa(local_bgc_mem, local_sediment_mem, start_idx,end_idx, lacc=lzacc)
+#else
+    CALL dipowa_vector(local_bgc_mem, local_sediment_mem, start_idx,end_idx, lacc=lzacc)
+#endif
 
     DO j = start_idx, end_idx ! Vectorized
 
