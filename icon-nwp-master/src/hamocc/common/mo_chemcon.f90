@@ -65,7 +65,8 @@ SUBROUTINE CHEMCON (local_bgc_mem, start_idx, end_idx, klevs, psao, ptho,  &
   REAL(wp) :: cek0, ckb, ck1, ck2, ckw, oxy, ani
   REAL(wp) :: ak1, ak2, akb, akw, ak0, aksp0, log10ksp
   REAL(wp) :: p, cp, tc,tt,ts,ts2,ts3,ts4,ts5
-  REAL(wp) :: pis, pis2, rs,s2,deltav,deltak,lnkpk0(11)
+  REAL(wp) :: pis, pis2, rs,s2,deltav,deltak
+  REAL(wp) :: lnkpk0(start_idx:end_idx, 11)
   REAL(wp) :: aksi, cksi, aks, cks, akf, ckf, free2sws,total2sws
   REAL(wp) :: ck1p,ck2p,ck3p, ak1p,ak2p,ak3p, total2free
   REAL(wp) :: sti, fti, total2free_0p, free2SWS_0p, total2SWS_0p,SWS2total
@@ -521,7 +522,7 @@ SUBROUTINE CHEMCON (local_bgc_mem, start_idx, end_idx, klevs, psao, ptho,  &
 
             deltav      = pa0(js) + pa1(js) * tc + pa2(js) * tc * tc
             deltak      = pb0(js) + pb1(js) * tc + pb2(js) * tc * tc
-            lnkpk0(js) = - ( deltav * cp + 0.5_wp * deltak * cp * p )
+            lnkpk0(jc, js) = - ( deltav * cp + 0.5_wp * deltak * cp * p )
 
            ENDDO
 
@@ -542,14 +543,14 @@ SUBROUTINE CHEMCON (local_bgc_mem, start_idx, end_idx, klevs, psao, ptho,  &
           total2SWS_0p = total2free_0p * free2SWS_0p             ! KSWS =Ktotal*total2SWS
 
           ! Pressure correction on Ks (free scale)
-           AKS  = AKS  * EXP(lnkpk0(1))
+           AKS  = AKS  * EXP(lnkpk0(jc, 1))
 
          ! conversion factor total to free scale
            total2free = 1._wp/(1._wp + sti/AKS)
 
 
           ! Pressure correction on Kf (free scale)
-           AKF  = AKF  * EXP(lnkpk0(2))
+           AKF  = AKF  * EXP(lnkpk0(jc, 2))
 
           ! convert to total scale
            AKF  = AKF / total2free
@@ -568,15 +569,15 @@ SUBROUTINE CHEMCON (local_bgc_mem, start_idx, end_idx, klevs, psao, ptho,  &
 
         ! Pressure correction
 
-           AK1  = AK1 * EXP(lnkpk0(7))
-           AK2  = AK2 * EXP(lnkpk0(8))
-           AKB = AKB * EXP(lnkpk0(9))
-           AKW = AKW * EXP(lnkpk0(10))
-           AKSP0 = ARACAL* AKSP0 * EXP(lnkpk0(11))
-           AK1P = AK1P * EXP(lnkpk0(3))
-           AK2P = AK2P * EXP(lnkpk0(4))
-           AK3P = AK3P * EXP(lnkpk0(5))
-           AKSI = AKSI * EXP(lnkpk0(6))
+           AK1  = AK1 * EXP(lnkpk0(jc, 7))
+           AK2  = AK2 * EXP(lnkpk0(jc, 8))
+           AKB = AKB * EXP(lnkpk0(jc, 9))
+           AKW = AKW * EXP(lnkpk0(jc, 10))
+           AKSP0 = ARACAL* AKSP0 * EXP(lnkpk0(jc, 11))
+           AK1P = AK1P * EXP(lnkpk0(jc, 3))
+           AK2P = AK2P * EXP(lnkpk0(jc, 4))
+           AK3P = AK3P * EXP(lnkpk0(jc, 5))
+           AKSI = AKSI * EXP(lnkpk0(jc, 6))
 
           ! Conversion to total scale and move to 3D var
 
