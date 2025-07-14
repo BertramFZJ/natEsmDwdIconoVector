@@ -1,3 +1,5 @@
+#define __RSE_LVECTOR__
+
 ! ICON
 !
 ! ---------------------------------------------------------------
@@ -150,6 +152,12 @@ MODULE mo_aggregates
 
 !     REAL(wp), INTENT(in)           :: lon(bgc_nproma), lat(bgc_nproma)
 
+#ifdef __RSE_LVECTOR__
+     INTEGER :: max_klevs
+
+     max_klevs = MAXVAL(klev(start_idx:end_idx))
+#endif
+
      ! molecular dynamic viscosity
      CALL calc_dynvis(aggr_mem%dynvis, klev, start_idx, end_idx, pddpo, ppo, ptho, psao)
 
@@ -158,10 +166,18 @@ MODULE mo_aggregates
      ! calculate the mean sinking velocity of aggregates
      CALL ws_Re_approx(aggr_mem, klev, start_idx, end_idx, pddpo)
 
+#ifdef __RSE_LVECTOR__
+     !NEC$ nomove
+     DO k = 1, max_klevs
+        !NEC$ nomove
+        DO j = start_idx, end_idx
+            IF(pddpo(j,k) > EPSILON(0.5_wp) .and. k <= klev(j)) THEN
+#else
      DO j = start_idx, end_idx
         kpke=klev(j)
         DO k = 1,kpke
-           IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
+           IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
 
 !              aggdiag(j,k,kwsagg)    = ws_agg(j,k) * 86400._wp / dtbgc ! conversion  m/time_step   to  m/d for output
 !              aggdiag(j,k,kdynvis)   = dynvis(j,k)
