@@ -517,20 +517,33 @@ MODULE mo_aggregates
      INTEGER, INTENT(in)            :: end_idx                !< end index  for j loop  (ICON cells, MPIOM lat dir)
      REAL(wp), INTENT(in), TARGET   :: pddpo(bgc_nproma,bgc_zlevs)      !< size of scalar grid cell (3rd dimension) [m]
 
+#ifdef __RSE_LVECTOR__
+     INTEGER :: max_klevs
 
+     max_klevs = MAXVAL(klev(start_idx:end_idx))
+#endif
+
+#ifdef __RSE_LVECTOR__
+     !NEC$ nomove
+     DO k = 1, max_klevs
+        !NEC$ nomove
+        DO j = start_idx, end_idx
+            IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
+#else
      DO j = start_idx, end_idx
         kpke=klev(j)
-        IF(kpke > 0)THEN
-        DO k = 1,kpke
-           IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
-              ! ws_Re is a function
-              aggr_mem%ws_agg(j,k) = ws_Re(aggr_mem,j,k)
-           ENDIF
-        ENDDO
-        ENDIF
-     ENDDO
-
-
+        IF(kpke > 0) THEN
+            DO k = 1,kpke
+                IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
+                    ! ws_Re is a function
+                    aggr_mem%ws_agg(j,k) = ws_Re(aggr_mem,j,k)
+                END IF
+            END DO
+#ifndef __RSE_LVECTOR__
+        END IF ! kpke > 0
+#endif
+     END DO
 
   END SUBROUTINE ws_Re_approx
 
