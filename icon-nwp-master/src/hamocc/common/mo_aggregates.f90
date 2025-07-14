@@ -171,7 +171,7 @@ MODULE mo_aggregates
      DO k = 1, max_klevs
         !NEC$ nomove
         DO j = start_idx, end_idx
-            IF(pddpo(j,k) > EPSILON(0.5_wp) .and. k <= klev(j)) THEN
+            IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
 #else
      DO j = start_idx, end_idx
         kpke=klev(j)
@@ -788,39 +788,48 @@ MODULE mo_aggregates
      ! Local variables
      REAL(wp):: press_val  ! Pascal/rho -> dbar
 
+#ifdef __RSE_LVECTOR__
+     INTEGER :: max_klevs
 
+     max_klevs = MAXVAL(klev(start_idx:end_idx))
+#endif
+
+#ifdef __RSE_LVECTOR__
+     !NEC$ nomove
+     DO k = 1, max_klevs
+        !NEC$ nomove
+        DO j = start_idx, end_idx
+            IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
+#else
      DO j = start_idx, end_idx
         kpke=klev(j)
         IF(kpke > 0)THEN
-
-        DO k = 1,kpke
-
-           IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
-
-!              press_val = ppo(j,k) * rhoref_water * 1.e-5_wp ! Pascal/rho -> dbar
-              press_val = ppo(j,k) * rhoref_water/g * 1.e-4_wp ! mm
+            DO k = 1,kpke
+                IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
+!                   press_val = ppo(j,k) * rhoref_water * 1.e-5_wp ! Pascal/rho -> dbar
+                    press_val = ppo(j,k) * rhoref_water/g * 1.e-4_wp ! mm
 ! MAGO needs dynvis to be in [Pa*s = kg m-1 s-1], as provided by the formula here.
 ! The formula needs press_val to be in [kg cm-2]. p=rho*g*h -> p/g is [kg m-2] -> p/g * 1.e-4 is [kg cm-2]
 ! ppo is provided as p/rho [m2/s2] (see ocean/physics/mo_ocean_thermodyn.f90; p is NOT in [m] as mentioned for press_hyd in ocean/dynamics/mo_ocean_types.f90)
 ! To get press_val in [kg cm-2], ppo has to be multiplied by rho/g and 1.e-4.
 
-              ! molecular dynamic viscosity
-              dynvis(j,k) = 0.1_wp *       & ! Unit: g / (cm*s) -> kg / (m*s)
-                   &       (cdynv(1)                                                                           &
-                   &      + cdynv(2)*ptho(j,k) + cdynv(3)*ptho(j,k)**2._wp + cdynv(4)*ptho(j,k)**3._wp &
-                   &      + cdynv(5)*press_val + cdynv(6)*press_val**2._wp &
-                   &      + cdynv(7)*psao(j,k) &
-                   &      + psao(j,k)*(cdynv(8)*ptho(j,k) + cdynv(9)*ptho(j,k)**2._wp + cdynv(10)*ptho(j,k)**3._wp) &
-                   &      + press_val*(cdynv(11)*ptho(j,k) + cdynv(12)*ptho(j,k)**2._wp)         &
-                   &      - press_val**2._wp*(cdynv(13)*ptho(j,k) + cdynv(14)*ptho(j,k)**2._wp) &
-                   &        )
-
-           ENDIF
-        ENDDO
-        ENDIF
-     ENDDO
-
-
+                    ! molecular dynamic viscosity
+                    dynvis(j,k) = 0.1_wp *       & ! Unit: g / (cm*s) -> kg / (m*s)
+                    &       (cdynv(1)                                                                           &
+                    &      + cdynv(2)*ptho(j,k) + cdynv(3)*ptho(j,k)**2._wp + cdynv(4)*ptho(j,k)**3._wp &
+                    &      + cdynv(5)*press_val + cdynv(6)*press_val**2._wp &
+                    &      + cdynv(7)*psao(j,k) &
+                    &      + psao(j,k)*(cdynv(8)*ptho(j,k) + cdynv(9)*ptho(j,k)**2._wp + cdynv(10)*ptho(j,k)**3._wp) &
+                    &      + press_val*(cdynv(11)*ptho(j,k) + cdynv(12)*ptho(j,k)**2._wp)         &
+                    &      - press_val**2._wp*(cdynv(13)*ptho(j,k) + cdynv(14)*ptho(j,k)**2._wp) &
+                    &        )
+                END IF
+            END DO
+#ifndef __RSE_LVECTOR__
+        END IF ! kpke > 0
+#endif
+     END DO
 
   END SUBROUTINE calc_dynvis
 
