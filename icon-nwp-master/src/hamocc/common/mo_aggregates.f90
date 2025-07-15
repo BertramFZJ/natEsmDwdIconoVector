@@ -611,75 +611,55 @@ MODULE mo_aggregates
 
     ! Local
     REAL(wp) :: d_Re01, d_Re10, d_low, ws_agg_ints
-    REAL(wp),POINTER :: av_dp(:,:),               &  ! mean primary particle diameter
-                       &  av_rho_p(:,:),           &  ! mean primary particle density
-                       &  df_agg(:,:),             &  ! fractal dimension of aggregates
-                       &  b_agg(:,:),              &  ! aggregate number distribution slope
-                       &  Lmax_agg(:,:),           &  ! maximum diamater of aggregates
-                       &  ws_agg(:,:),             &  ! aggregate mean sinking velocity
-                       &  stickiness_agg(:,:),     &  ! mean aggregate stickiness
-                       &  stickiness_frustule(:,:),&  ! frustule stickiness
-                       &  dynvis(:,:),             &  ! molecular dynamic viscosity
-                       &  av_rhof_V(:,:)
-
-       av_dp              =>  aggr_mem%av_dp
-       av_rho_p           =>  aggr_mem%av_rho_p
-       df_agg             =>  aggr_mem%df_agg
-       b_agg              =>  aggr_mem%b_agg
-       Lmax_agg           =>  aggr_mem%Lmax_agg
-       ws_agg             =>  aggr_mem%ws_agg
-       stickiness_agg     =>  aggr_mem%stickiness_agg
-       stickiness_frustule=>  aggr_mem%stickiness_frustule
-       dynvis             =>  aggr_mem%dynvis
-       av_rhof_V          =>  aggr_mem%av_rhof_V
 
     ! for Re-dependent, it should always be agg_Re_crit>10
     ! for shear-driven break-up, check against integration bounds
     ! calc integration limits for Re-dependent sinking:
     ! Re=0.1
-    d_Re01 = get_dRe(dynvis(j,k), df_agg(j,k), av_rho_p(j,k), av_dp(j,k), &
-      & AJ1, BJ1, 0.1_wp)
+    d_Re01 = get_dRe(aggr_mem%dynvis(j,k), aggr_mem%df_agg(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), &
+    & AJ1, BJ1, 0.1_wp)
 
     ! Re=10
-    d_Re10 = get_dRe(dynvis(j,k), df_agg(j,k), av_rho_p(j,k), av_dp(j,k), &
-      & AJ2, BJ2, 10._wp)
-    d_low = av_dp(j,k)
+    d_Re10 = get_dRe(aggr_mem%dynvis(j,k), aggr_mem%df_agg(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), &
+    & AJ2, BJ2, 10._wp)
+    d_low = aggr_mem%av_dp(j,k)
 
     ws_agg_ints = 0._wp
-    IF(Lmax_agg(j,k) >= d_Re01)THEN ! Re > 0.1
+    IF(aggr_mem%Lmax_agg(j,k) >= d_Re01) THEN ! Re > 0.1
                                     ! - collect full range up to
                                     ! 0.1, (dp->d_Re1) and set lower bound to
                                     ! Re=0.1 val
                                     ! aj=AJ1, bj=1
-      ws_agg_ints = get_ws_agg_integral(dynvis(j,k), av_rho_p(j,k), av_dp(j,k), df_agg(j,k), b_agg(j,k), &
-        & AJ1, BJ1, av_dp(j,k), d_Re01)
+        ws_agg_ints = get_ws_agg_integral(aggr_mem%dynvis(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), &
+        & aggr_mem%df_agg(j,k), aggr_mem%b_agg(j,k), AJ1, BJ1, aggr_mem%av_dp(j,k), d_Re01)
         d_low = d_Re01
     ENDIF
 
-    IF(Lmax_agg(j,k) >= d_Re10)THEN ! Re > 10
-                                         ! - collect full range Re=0.1-10 (d_Re1-> d_Re2)
-                                         ! and set lower bound to
-                                         ! Re=10 val
-                                         ! aj=AJ2, bj=0.871
+    IF(aggr_mem%Lmax_agg(j,k) >= d_Re10) THEN ! Re > 10
+                                    ! - collect full range Re=0.1-10 (d_Re1-> d_Re2)
+                                    ! and set lower bound to
+                                    ! Re=10 val
+                                    ! aj=AJ2, bj=0.871
         ws_agg_ints = ws_agg_ints  + &
-         get_ws_agg_integral(dynvis(j,k), av_rho_p(j,k), av_dp(j,k), df_agg(j,k), b_agg(j,k), &
-          AJ2, BJ2, d_Re01, d_Re10)
+        & get_ws_agg_integral(aggr_mem%dynvis(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), aggr_mem%df_agg(j,k), &
+        & aggr_mem%b_agg(j,k), AJ2, BJ2, d_Re01, d_Re10)
         d_low = d_Re10
     ENDIF
 
-    IF(d_low < d_Re01)THEN ! Re<0.1 and Lmax < d_Re1
-        ws_agg_ints = get_ws_agg_integral(dynvis(j,k), av_rho_p(j,k), av_dp(j,k), df_agg(j,k), b_agg(j,k), &
-          & AJ1, BJ1, av_dp(j,k), Lmax_agg(j,k))
+    IF(d_low < d_Re01) THEN ! Re<0.1 and Lmax < d_Re1
+        ws_agg_ints = get_ws_agg_integral(aggr_mem%dynvis(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), &
+        & aggr_mem%df_agg(j,k), aggr_mem%b_agg(j,k), AJ1, BJ1, aggr_mem%av_dp(j,k), aggr_mem%Lmax_agg(j,k))
     ELSE ! Re > 10, aj=AJ3, bj=BJ3
         ws_agg_ints = ws_agg_ints + &
-          & get_ws_agg_integral(dynvis(j,k), av_rho_p(j,k), av_dp(j,k), df_agg(j,k), b_agg(j,k), AJ3, BJ3, d_low, Lmax_agg(j,k))
+        & get_ws_agg_integral(aggr_mem%dynvis(j,k), aggr_mem%av_rho_p(j,k), aggr_mem%av_dp(j,k), aggr_mem%df_agg(j,k), &
+        & aggr_mem%b_agg(j,k), AJ3, BJ3, d_low, aggr_mem%Lmax_agg(j,k))
     ENDIF
 
     ! concentration-weighted mean sinking velocity
     ws_Re = (ws_agg_ints &
-            & /((Lmax_agg(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k))  &
-            & - av_dp(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)))  &
-            & / (1._wp + df_agg(j,k) - b_agg(j,k))))*dtbgc   ! (m/s -> m/d)  *dtb
+            & /((aggr_mem%Lmax_agg(j,k)**(1._wp + aggr_mem%df_agg(j,k) - aggr_mem%b_agg(j,k))  &
+            & - aggr_mem%av_dp(j,k)**(1._wp + aggr_mem%df_agg(j,k) - aggr_mem%b_agg(j,k)))  &
+            & / (1._wp + aggr_mem%df_agg(j,k) - aggr_mem%b_agg(j,k))))*dtbgc   ! (m/s -> m/d)  *dtb
 
   END FUNCTION ws_Re
 
