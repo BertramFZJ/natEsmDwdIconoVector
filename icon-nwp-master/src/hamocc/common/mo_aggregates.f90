@@ -247,6 +247,12 @@ MODULE mo_aggregates
                        &  av_rhof_V(:,:)
      REAL(wp), POINTER :: aggdiag(:,:,:)    ! 3d concentration EU
 
+#ifdef __RSE_LVECTOR__
+     INTEGER :: max_klevs
+
+     max_klevs = MAXVAL(klev(start_idx:end_idx))
+#endif
+
        av_dp              =>  aggr_mem%av_dp
        av_rho_p           =>  aggr_mem%av_rho_p
        df_agg             =>  aggr_mem%df_agg
@@ -259,13 +265,19 @@ MODULE mo_aggregates
        av_rhof_V          =>  aggr_mem%av_rhof_V
        aggdiag            =>  aggr_mem%aggdiag
 
+#ifdef __RSE_LVECTOR__
+     !NEC$ nomove
+     DO k = 1, max_klevs
+        !NEC$ nomove
+        DO j = start_idx, end_idx
+            IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
+#else
      DO j = start_idx, end_idx
         kpke=klev(j)
-        IF(kpke > 0)THEN
-
-        DO k = 1,kpke
-
-         IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
+        IF(kpke > 0) THEN
+            DO k = 1,kpke
+              IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
 
               n_det   = 0._wp ! number of primary particles
               n_opal  = 0._wp
@@ -297,17 +309,17 @@ MODULE mo_aggregates
 
               ! number of opal frustules (/num_fac)
               n_opal = ABS(local_bgc_mem%bgctra(j,k,iopal)) * opalwei      / rho_V_frustule_opal
-! n_opal = 3.124203669937888E-050
+              ! n_opal = 3.124203669937888E-050
 
               ! maximum mass of detritus inside a frustule
               cell_pot_det_mass = n_opal * V_frustule_inner * agg_org_dens
-! cell_pot_det_mass = 1.558762742723002E-052
+              ! cell_pot_det_mass = 1.558762742723002E-052
 
               ! detritus mass inside frustules
-!              cell_det_mass = MIN(cell_pot_det_mass, ABS(bgctra(j,k,idet))  * det_mol2mass - eps_one)
+              ! cell_det_mass = MIN(cell_pot_det_mass, ABS(bgctra(j,k,idet))  * det_mol2mass - eps_one)
               cell_det_mass = MAX(0._wp,MIN(cell_pot_det_mass, ABS(local_bgc_mem%bgctra(j,k,idet))  * det_mol2mass))
-! Examplified values for version "- eps_one"; written out by the write statement at the end of this loop
-! cell_det_mass = -2.220446049250313E-016
+              ! Examplified values for version "- eps_one"; written out by the write statement at the end of this loop
+              ! cell_det_mass = -2.220446049250313E-016
 
               ! volume of detritus component in cell
               !              V_POM_cell =   (cell_det_mass/n_opal)/agg_org_dens
@@ -319,28 +331,28 @@ MODULE mo_aggregates
               ! density of the diatom frsutules incl. opal, detritus and water
               !              rho_frustule = (rho_V_frustule_opal + cell_det_mass/n_opal + V_aq*rhoref_water)/V_dp_opal
               rho_frustule = (rho_V_frustule_opal + cell_det_mass/(n_opal+eps_one) + V_aq*rhoref_water)/V_dp_opal
-! rho_frustule = -15027
+              ! rho_frustule = -15027
 
               ! mass of extra cellular detritus particles
               free_detritus =  ABS(local_bgc_mem%bgctra(j,k,idet))  * det_mol2mass  - cell_det_mass
 
-              IF(l_virtual_tep)then
-!                 rho_diatom = (rho_frustule + cell_det_mass/cell_pot_det_mass*rho_tep) &
-!                                / (1._wp + cell_det_mass/cell_pot_det_mass)
-                 rho_diatom = (rho_frustule + cell_det_mass/(cell_pot_det_mass+eps_one)*rho_tep) &
+              IF(l_virtual_tep) THEN
+                ! rho_diatom = (rho_frustule + cell_det_mass/cell_pot_det_mass*rho_tep) &
+                ! / (1._wp + cell_det_mass/cell_pot_det_mass)
+                  rho_diatom = (rho_frustule + cell_det_mass/(cell_pot_det_mass+eps_one)*rho_tep) &
                                 / (1._wp + cell_det_mass/(cell_pot_det_mass+eps_one))
-! rho_diatom = -inf; negative cell_det_mass leads to division by 0 here
+                ! rho_diatom = -inf; negative cell_det_mass leads to division by 0 here
               ELSE
-                 rho_diatom    = rho_frustule
+                  rho_diatom    = rho_frustule
               ENDIF
-! rho_diatom = -inf
+              ! rho_diatom = -inf
 
               ! number of primary particles
               n_det  = free_detritus / rho_V_dp_det  ! includes num_fac
               n_calc = ABS(local_bgc_mem%bgctra(j,k,icalc)) * calcwei      / rho_V_dp_calc
               n_dust = ABS(local_bgc_mem%bgctra(j,k,idust))               / rho_V_dp_dust     ! dust is in kg/m3
 
-               ! total number of primary particles  ! mm: n_total not in use
+              ! total number of primary particles  ! mm: n_total not in use
               ! n_total = n_det + n_opal + n_calc + n_dust
 
               ! primary particles surface weighted stickiness is mapped
@@ -348,151 +360,152 @@ MODULE mo_aggregates
               ! fractal dimension of aggregates is based on that mapped df
               ! number distribution slope b is based on df
 
-               ! calc total areas
-               A_det   = n_det  * A_dp_det
-               A_opal  = n_opal * A_dp_opal
-               A_calc  = n_calc * A_dp_calc
-               A_dust  = n_dust * A_dp_dust
-               A_total = A_det + A_opal + A_calc + A_dust
+              ! calc total areas
+              A_det   = n_det  * A_dp_det
+              A_opal  = n_opal * A_dp_opal
+              A_calc  = n_calc * A_dp_calc
+              A_dust  = n_dust * A_dp_dust
+              A_total = A_det + A_opal + A_calc + A_dust
 
-               ! calc frustule stickiness
-               stickiness_frustule(j,k) = cell_det_mass / (cell_pot_det_mass + eps_one) * stickiness_tep &
-                                          & + (1._wp - cell_det_mass / (cell_pot_det_mass + eps_one)) * stickiness_opal
+              ! calc frustule stickiness
+              stickiness_frustule(j,k) = cell_det_mass / (cell_pot_det_mass + eps_one) * stickiness_tep &
+              & + (1._wp - cell_det_mass / (cell_pot_det_mass + eps_one)) * stickiness_opal
 
-               ! calc mean stickiness
-               stickiness_agg(j,k) = stickiness_frustule(j,k) * A_opal  &
-                                     & + stickiness_det  * A_det              &
-                                     & + stickiness_calc * A_calc             &
-                                     & + stickiness_dust * A_dust
+              ! calc mean stickiness
+              stickiness_agg(j,k) = stickiness_frustule(j,k) * A_opal  &
+              & + stickiness_det  * A_det              &
+              & + stickiness_calc * A_calc             &
+              & + stickiness_dust * A_dust
 
-               stickiness_agg(j,k) = stickiness_agg(j,k)/(A_total+eps_one)
+              stickiness_agg(j,k) = stickiness_agg(j,k)/(A_total+eps_one)
 
-               stickiness_mapped     = (stickiness_agg(j,k) - stickiness_min) &
-                                     & /(stickiness_max - stickiness_min)
+              stickiness_mapped     = (stickiness_agg(j,k) - stickiness_min) &
+              & /(stickiness_max - stickiness_min)
 
-               df_agg(j,k)         = agg_df_max * EXP(df_slope * stickiness_mapped)
+              df_agg(j,k) = agg_df_max * EXP(df_slope * stickiness_mapped)
 
-               ! Slope is here positive defined (as n(d)~d^-b), so *-1 of
-               ! Jiang & Logan 1991: Fractal dimensions of aggregates
-               ! determined from steady-state size distributions.
-               ! Environ. Sci. Technol. 25, 2031-2038.
-               !
-               ! See also:
-               ! Hunt 1980: Prediction of oceanic particle size distributions
-               !            from coagulation and sedimentation mechanisms.
-               !
-               ! Additional assumptions made here:
-               ! b in Jiang & Logan     (used for       Re <   0.1: b=1
-               !                              for 0.1 < Re <  10  : b=0.871
-               !                              for 10  < Re < 100  : b=0.547)
-               ! is set to 0.871 as an 'average for our range of 0<Re<Re_crit'
-               ! D2=min(2,df(3d)) (Meakin 1988)
-               !
-               ! => Formulation in Jiang & Logan 1991:
-               ! slope = -0.5*(3+df+(2+df-D2)/(2-b)) reduces to:
+              ! Slope is here positive defined (as n(d)~d^-b), so *-1 of
+              ! Jiang & Logan 1991: Fractal dimensions of aggregates
+              ! determined from steady-state size distributions.
+              ! Environ. Sci. Technol. 25, 2031-2038.
+              !
+              ! See also:
+              ! Hunt 1980: Prediction of oceanic particle size distributions
+              !            from coagulation and sedimentation mechanisms.
+              !
+              ! Additional assumptions made here:
+              ! b in Jiang & Logan     (used for       Re <   0.1: b=1
+              !                              for 0.1 < Re <  10  : b=0.871
+              !                              for 10  < Re < 100  : b=0.547)
+              ! is set to 0.871 as an 'average for our range of 0<Re<Re_crit'
+              ! D2=min(2,df(3d)) (Meakin 1988)
+              !
+              ! => Formulation in Jiang & Logan 1991:
+              ! slope = -0.5*(3+df+(2+df-D2)/(2-b)) reduces to:
 
-               b_agg(j,k) = 0.5_wp * (3._wp + df_agg(j,k) &
-                         & + (2._wp + df_agg(j,k) - &
-                         & MIN(2._wp, df_agg(j,k)) ) / (2._wp - BJ2))
+              b_agg(j,k) = 0.5_wp * (3._wp + df_agg(j,k) &
+              & + (2._wp + df_agg(j,k) - &
+              & MIN(2._wp, df_agg(j,k)) ) / (2._wp - BJ2))
 
-               ! careful: for df=1.5904: b_agg=2*df where w_s is undefined.
+              ! careful: for df=1.5904: b_agg=2*df where w_s is undefined.
 
-               ! total volume of primary particles
-               V_det   = n_det  * V_dp_det       * num_fac
-               V_opal  = n_opal * V_dp_opal      * num_fac
-               V_calc  = n_calc * V_dp_calc      * num_fac
-               V_dust  = n_dust * V_dp_dust      * num_fac
-               V_solid = V_det + V_opal + V_calc + V_dust
+              ! total volume of primary particles
+              V_det   = n_det  * V_dp_det       * num_fac
+              V_opal  = n_opal * V_dp_opal      * num_fac
+              V_calc  = n_calc * V_dp_calc      * num_fac
+              V_dust  = n_dust * V_dp_dust      * num_fac
+              V_solid = V_det + V_opal + V_calc + V_dust
 
-               ! primary particle mean diameter according to Bushell & Amal 1998, 2000
-               ! sum(n_i) not changing - can be pulled out and thus cancels out
-               av_dp(j,k) = &
-                 & (n_calc*dp_calc**3._wp + n_dust*dp_dust**3._wp + n_opal*dp_opal**3._wp + n_det*dp_det**3._wp)
+              ! primary particle mean diameter according to Bushell & Amal 1998, 2000
+              ! sum(n_i) not changing - can be pulled out and thus cancels out
+              av_dp(j,k) = &
+              & (n_calc*dp_calc**3._wp + n_dust*dp_dust**3._wp + n_opal*dp_opal**3._wp + n_det*dp_det**3._wp)
 
-               av_dp(j,k) = av_dp(j,k) / &
-                 & (n_calc*dp_calc**df_agg(j,k) + n_dust*dp_dust**df_agg(j,k) &
-                 & + n_opal*dp_opal**df_agg(j,k) + n_det*dp_det**df_agg(j,k) + eps_one)
+              av_dp(j,k) = av_dp(j,k) / &
+              & (n_calc*dp_calc**df_agg(j,k) + n_dust*dp_dust**df_agg(j,k) &
+              & + n_opal*dp_opal**df_agg(j,k) + n_det*dp_det**df_agg(j,k) + eps_one)
 
-               av_dp(j,k) = av_dp(j,k)**(1._wp/(3._wp-df_agg(j,k)))
+              av_dp(j,k) = av_dp(j,k)**(1._wp/(3._wp-df_agg(j,k)))
 
-               ! density of mean primary particles
-               av_rho_p(j,k) = (V_det*agg_org_dens + V_opal*rho_diatom + V_calc*calcdens + V_dust*claydens) &
-                                  & / (V_solid + eps_one)
-!               if (v_solid == 0._wp) write(*,*) '#1# j, k, v_solid, av_rho_p:',j,k,v_solid,av_rho_p(j,k)
-!               if (av_rho_p(j,k) < 0._wp .or. av_rho_p(j,k) > 2600._wp) then
-!                  write(*,*) '#1#:',j,k,av_rho_p(j,k),v_det,v_opal,v_calc,v_dust,v_solid,&
-!                       & rho_diatom, rho_frustule, cell_det_mass, cell_pot_det_mass, rho_tep,&
-!                       & n_opal, V_frustule_inner, agg_org_dens,&
-!                       & bgctra(j,k,idet), det_mol2mass, eps_one
-!               endif
-
-            ENDIF
-         ENDDO
-         ENDIF
-      ENDDO
-
-
+              ! density of mean primary particles
+              av_rho_p(j,k) = (V_det*agg_org_dens + V_opal*rho_diatom + V_calc*calcdens + V_dust*claydens) &
+              & / (V_solid + eps_one)
+!             if (v_solid == 0._wp) write(*,*) '#1# j, k, v_solid, av_rho_p:',j,k,v_solid,av_rho_p(j,k)
+!             if (av_rho_p(j,k) < 0._wp .or. av_rho_p(j,k) > 2600._wp) then
+!             write(*,*) '#1#:',j,k,av_rho_p(j,k),v_det,v_opal,v_calc,v_dust,v_solid,&
+!             & rho_diatom, rho_frustule, cell_det_mass, cell_pot_det_mass, rho_tep,&
+!             & n_opal, V_frustule_inner, agg_org_dens,&
+!             & bgctra(j,k,idet), det_mol2mass, eps_one
+!             endif
+            END IF
+        END DO
+#ifndef __RSE_LVECTOR__
+     END IF ! kpke > 0
+#endif
+     END DO
 
    ! calculate the maximum diameter of aggregates based on agg props
-!   CALL max_agg_diam(kpie, kpje, kpke, pddpo)
+   ! CALL max_agg_diam(kpie, kpje, kpke, pddpo)
    CALL max_agg_diam(aggr_mem, klev, start_idx, end_idx, pddpo)
 
-
-     DO j = start_idx, end_idx
-        kpke=klev(j)
-        IF(kpke > 0)THEN
-
-        DO k = 1,kpke
-
-         IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
-
-             ! mass factor  ! mm: only used to calculate number of aggregates n_agg; see unmodularized MAGO version
-!             mf = mass_factor(av_dp(j,k), df_agg(j,k), av_rho_p(j,k))
-
-!             av_d_c(j,k)    = (1._wp + df_agg(j,k) - b_agg(j,k))                    &
-!                            & /(2._wp + df_agg(j,k) - b_agg(j,k))                   &
-!                            & *(Lmax_agg(j,k)**(2._wp + df_agg(j,k) - b_agg(j,k))   &
-!                            & - av_dp(j,k)**(2._wp + df_agg(j,k) - b_agg(j,k)))     &
-!                            & / (Lmax_agg(j,k)**(1._wp+df_agg(j,k)-b_agg(j,k))      &
-!                            & - av_dp(j,k)**(1._wp + df_agg(j,k)-b_agg(j,k)))
+#ifdef __RSE_LVECTOR__
+   !NEC$ nomove
+   DO k = 1, max_klevs
+      !NEC$ nomove
+      DO j = start_idx, end_idx
+          IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
+#else
+   DO j = start_idx, end_idx
+      kpke=klev(j)
+      IF(kpke > 0) THEN
+          DO k = 1,kpke
+            IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
+! mass factor  ! mm: only used to calculate number of aggregates n_agg; see unmodularized MAGO version
+!           mf = mass_factor(av_dp(j,k), df_agg(j,k), av_rho_p(j,k))
+!           av_d_c(j,k)    = (1._wp + df_agg(j,k) - b_agg(j,k))                    &
+!           & /(2._wp + df_agg(j,k) - b_agg(j,k))                   &
+!           & *(Lmax_agg(j,k)**(2._wp + df_agg(j,k) - b_agg(j,k))   &
+!           & - av_dp(j,k)**(2._wp + df_agg(j,k) - b_agg(j,k)))     &
+!           & / (Lmax_agg(j,k)**(1._wp+df_agg(j,k)-b_agg(j,k))      &
+!           & - av_dp(j,k)**(1._wp + df_agg(j,k)-b_agg(j,k)))
 !
-             ! volume-weighted aggregate density
-             av_rhof_V(j,k) = &
-              & (av_rho_p(j,k) - rhoref_water) &
-              & * av_dp(j,k)**(3._wp - df_agg(j,k)) &
-              & * (4._wp - b_agg(j,k)) * &
-              & (Lmax_agg(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)) &
-              & - av_dp(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)))  &
-              & / ((1._wp + df_agg(j,k) - b_agg(j,k))                       &
-              & * (Lmax_agg(j,k)**(4._wp - b_agg(j,k)) - &
-              &    av_dp(j,k)**(4._wp - b_agg(j,k))))   &
-              & + rhoref_water
+            ! volume-weighted aggregate density
+            av_rhof_V(j,k) = &
+            & (av_rho_p(j,k) - rhoref_water) &
+            & * av_dp(j,k)**(3._wp - df_agg(j,k)) &
+            & * (4._wp - b_agg(j,k)) * &
+            & (Lmax_agg(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)) &
+            & - av_dp(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)))  &
+            & / ((1._wp + df_agg(j,k) - b_agg(j,k))                       &
+            & * (Lmax_agg(j,k)**(4._wp - b_agg(j,k)) - &
+            &    av_dp(j,k)**(4._wp - b_agg(j,k))))   &
+            & + rhoref_water
 !
-!             ! volume-weighted aggregate porosity
-!             av_por_V(j,k)  =  1._wp - ((4._wp - b_agg(j,k))                       &
-!                            & * av_dp(j,k)**(3._wp - df_agg(j,k))                  &
-!                            & * (Lmax_agg(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)) &
-!                            & - av_dp(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k))))   &
-!                            & / ((1._wp + df_agg(j,k) - b_agg(j,k))                &
-!                            & * (Lmax_agg(j,k)**(4._wp - b_agg(j,k)) - av_dp(j,k)**(4._wp - b_agg(j,k))))
+!           ! volume-weighted aggregate porosity
+!           av_por_V(j,k)  =  1._wp - ((4._wp - b_agg(j,k))                       &
+!           & * av_dp(j,k)**(3._wp - df_agg(j,k))                  &
+!           & * (Lmax_agg(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k)) &
+!           & - av_dp(j,k)**(1._wp + df_agg(j,k) - b_agg(j,k))))   &
+!           & / ((1._wp + df_agg(j,k) - b_agg(j,k))                &
+!           & * (Lmax_agg(j,k)**(4._wp - b_agg(j,k)) - av_dp(j,k)**(4._wp - b_agg(j,k))))
 
-             aggdiag(j,k,kdfagg)    = df_agg(j,k)
-             aggdiag(j,k,klmaxagg)  = lmax_agg(j,k)
-             aggdiag(j,k,kavdp)     = av_dp(j,k)
-             aggdiag(j,k,ksticka)    = stickiness_agg(j,k)
-             aggdiag(j,k,kavrhop)   = av_rho_p(j,k)
-             aggdiag(j,k,kavrhof)   = av_rhof_V(j,k)
-!             aggdiag(j,k,kstickf)   = stickiness_frustule(j,k)
-!             aggdiag(j,k,kavdc)     = av_d_c(j,k)
-!             aggdiag(j,k,kbagg)     = b_agg(j,k)
-!             aggdiag(j,k,kavpor)    = av_por_V(j,k)
-
-            ENDIF
-         ENDDO
-         ENDIF
-      ENDDO
-
-
+            aggdiag(j,k,kdfagg)    = df_agg(j,k)
+            aggdiag(j,k,klmaxagg)  = lmax_agg(j,k)
+            aggdiag(j,k,kavdp)     = av_dp(j,k)
+            aggdiag(j,k,ksticka)    = stickiness_agg(j,k)
+            aggdiag(j,k,kavrhop)   = av_rho_p(j,k)
+            aggdiag(j,k,kavrhof)   = av_rhof_V(j,k)
+!           aggdiag(j,k,kstickf)   = stickiness_frustule(j,k)
+!           aggdiag(j,k,kavdc)     = av_d_c(j,k)
+!           aggdiag(j,k,kbagg)     = b_agg(j,k)
+!           aggdiag(j,k,kavpor)    = av_por_V(j,k)
+            END IF
+        END DO
+#ifndef __RSE_LVECTOR__
+    END IF ! kpke > 0
+#endif
+    END DO
 
   END SUBROUTINE aggregate_properties
 
@@ -685,15 +698,25 @@ MODULE mo_aggregates
      ! Local variables
      REAL(wp) :: nu_vis
 
+#ifdef __RSE_LVECTOR__
+     INTEGER :: max_klevs
 
+     max_klevs = MAXVAL(klev(start_idx:end_idx))
+#endif
+
+#ifdef __RSE_LVECTOR__
+     !NEC$ nomove
+     DO k = 1, max_klevs
+        !NEC$ nomove
+        DO j = start_idx, end_idx
+            IF( (pddpo(j,k) > EPSILON(0.5_wp)) .and. (k <= klev(j)) ) THEN
+#else
      DO j = start_idx, end_idx
         kpke=klev(j)
-        IF(kpke > 0)THEN
-
-        DO k = 1,kpke
-
-           IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
-
+        IF(kpke > 0) THEN
+            DO k = 1,kpke
+                IF(pddpo(j,k) > EPSILON(0.5_wp)) THEN
+#endif
 ! ori:
 !              Lmax_agg(j,k) = ((agg_Re_crit * 18._wp *  dynvis(j,k) * dynvis(j,k) / rhoref_water)&
 !                                 & /((av_rho_p - rhoref_water)*g))**(1._wp/df_agg) &
@@ -706,12 +729,12 @@ MODULE mo_aggregates
                                 & *aggr_mem%av_dp(j,k)**(3._wp - aggr_mem%df_agg(j,k))*g &
                                 & /(AJ3*nu_vis**BJ3))**(1._wp/aggr_mem%df_agg(j,k))
 
-           ENDIF
-        ENDDO
-        ENDIF
-     ENDDO
-
-
+           END IF
+        END DO
+#ifndef __RSE_LVECTOR__
+        END IF ! kpke > 0
+#endif
+     END DO
 
   END SUBROUTINE max_agg_diam
 
