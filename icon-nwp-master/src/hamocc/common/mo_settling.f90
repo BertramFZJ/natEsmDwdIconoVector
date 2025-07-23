@@ -48,7 +48,6 @@ CONTAINS
 
       IMPLICIT NONE
 
-
       ! Arguments
       TYPE(t_bgc_memory), POINTER    :: local_bgc_mem
       TYPE(t_sediment_memory), POINTER :: local_sediment_mem
@@ -61,123 +60,122 @@ CONTAINS
       REAL(wp), INTENT(in), TARGET   :: za(bgc_nproma)      !< surface height
       LOGICAL, INTENT(IN), OPTIONAL :: lacc
 
-
       ! Local variables
-      INTEGER,  POINTER  :: kbo(:)   !< k-index of bottom layer (2d)
-      INTEGER :: k, kpke,j
+      INTEGER :: k, j
       LOGICAL :: lzacc
+
+      INTEGER :: max_klevs
+      max_klevs = MAXVAL(klev(start_idx:end_idx))
 
       CALL set_acc_host_or_device(lzacc, lacc)
 
+      ! implicit method:
+      ! C(k,T+dt)=C(k,T) + (w*dt/ddpo(k))*(C(k-1,T+1)-C(k,T+1))
+      ! -->
+      ! C(k,T+dt)=(ddpo(k)*C(k,T)+w*dt*C(k-1,T+dt))/(ddpo(k)+w*dt)
+      ! sedimentation=w*dt*C(ks,T+dt)
+      !
 
-     ! implicit method:
-     ! C(k,T+dt)=C(k,T) + (w*dt/ddpo(k))*(C(k-1,T+1)-C(k,T+1))
-     ! -->
-     ! C(k,T+dt)=(ddpo(k)*C(k,T)+w*dt*C(k-1,T+dt))/(ddpo(k)+w*dt)
-     ! sedimentation=w*dt*C(ks,T+dt)
-     !
-     kbo => local_bgc_mem%kbo
+      DO j = start_idx, end_idx
+        IF(klev(j) > 0) THEN
+            IF(pddpo(j,1) > EPSILON(0.5_wp)) THEN
 
-      !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
-      !$ACC LOOP GANG VECTOR
-      DO j=start_idx,end_idx
-        kpke=klev(j)
+                IF(klev(j) >= n90depth) THEN
+                    local_bgc_mem%bgcflux(j,kcoex90)  = local_bgc_mem%bgctra(j,n90depth,idet)* &
+                    & local_bgc_mem%wpoc(j,n90depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kcalex90) = local_bgc_mem%bgctra(j,n90depth,icalc)* &
+                    & local_bgc_mem%wcal(j,n90depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kopex90)  = local_bgc_mem%bgctra(j,n90depth,iopal)* &
+                    & local_bgc_mem%wopal(j,n90depth)*inv_dtbgc
+                END IF
 
-        IF(kpke > 0)THEN
-        IF(pddpo(j,1) > EPSILON(0.5_wp))THEN
+                IF(klev(j) >= n1000depth) THEN
+                    local_bgc_mem%bgcflux(j,kcoex1000)  = local_bgc_mem%bgctra(j,n1000depth,idet)* &
+                    & local_bgc_mem%wpoc(j,n1000depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kcalex1000) = local_bgc_mem%bgctra(j,n1000depth,icalc)* &
+                    & local_bgc_mem%wcal(j,n1000depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kopex1000)  = local_bgc_mem%bgctra(j,n1000depth,iopal)* &
+                    & local_bgc_mem%wopal(j,n1000depth)*inv_dtbgc
+                END IF
 
-         if(kpke>=n90depth)then
-           local_bgc_mem%bgcflux(j,kcoex90)  = local_bgc_mem%bgctra(j,n90depth,idet)* &
-             & local_bgc_mem%wpoc(j,n90depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kcalex90) = local_bgc_mem%bgctra(j,n90depth,icalc)* &
-             & local_bgc_mem%wcal(j,n90depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kopex90)  = local_bgc_mem%bgctra(j,n90depth,iopal)* &
-             & local_bgc_mem%wopal(j,n90depth)*inv_dtbgc
-         endif
+                IF(klev(j) >= n2000depth) THEN
+                    local_bgc_mem%bgcflux(j,kcoex2000)  = local_bgc_mem%bgctra(j,n2000depth,idet)* &
+                    & local_bgc_mem%wpoc(j,n2000depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kcalex2000) = local_bgc_mem%bgctra(j,n2000depth,icalc)* &
+                    & local_bgc_mem%wcal(j,n2000depth)*inv_dtbgc
+                    local_bgc_mem%bgcflux(j,kopex2000)  = local_bgc_mem%bgctra(j,n2000depth,iopal)* &
+                    & local_bgc_mem%wopal(j,n2000depth)*inv_dtbgc
+                END IF
 
-         if(kpke>=n1000depth)then
-           local_bgc_mem%bgcflux(j,kcoex1000)  = local_bgc_mem%bgctra(j,n1000depth,idet)* &
-             & local_bgc_mem%wpoc(j,n1000depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kcalex1000) = local_bgc_mem%bgctra(j,n1000depth,icalc)* &
-             & local_bgc_mem%wcal(j,n1000depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kopex1000)  = local_bgc_mem%bgctra(j,n1000depth,iopal)* &
-             & local_bgc_mem%wopal(j,n1000depth)*inv_dtbgc
-         endif
-
-         if(kpke>=n2000depth)then
-           local_bgc_mem%bgcflux(j,kcoex2000)  = local_bgc_mem%bgctra(j,n2000depth,idet)* &
-             & local_bgc_mem%wpoc(j,n2000depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kcalex2000) = local_bgc_mem%bgctra(j,n2000depth,icalc)* &
-             & local_bgc_mem%wcal(j,n2000depth)*inv_dtbgc
-           local_bgc_mem%bgcflux(j,kopex2000)  = local_bgc_mem%bgctra(j,n2000depth,iopal)* &
-             & local_bgc_mem%wopal(j,n2000depth)*inv_dtbgc
-         endif
-
-                  ! -----------surface layer
-         k=1
-           local_bgc_mem%bgctra(j,k,idet)  = (local_bgc_mem%bgctra(j,k,idet)*(pddpo(j,k)+za(j)))      &
+                ! -----------surface layer
+                k = 1
+                local_bgc_mem%bgctra(j,k,idet)  = (local_bgc_mem%bgctra(j,k,idet)*(pddpo(j,k)+za(j)))      &
                 &              / (pddpo(j,k)+ za(j) +local_bgc_mem%wpoc(j,k))
 
-           local_bgc_mem%bgctra(j,k,icalc)   = (local_bgc_mem%bgctra(j,k,icalc)*(pddpo(j,k)+za(j)))   &
+                local_bgc_mem%bgctra(j,k,icalc)   = (local_bgc_mem%bgctra(j,k,icalc)*(pddpo(j,k)+za(j)))   &
                 &                / (pddpo(j,k)+za(j)+local_bgc_mem%wcal(j,k))
 
-           local_bgc_mem%bgctra(j,k,iopal)   = (local_bgc_mem%bgctra(j,k,iopal)*(pddpo(j,k)+za(j)))    &
+                local_bgc_mem%bgctra(j,k,iopal)   = (local_bgc_mem%bgctra(j,k,iopal)*(pddpo(j,k)+za(j)))    &
                 &                / (pddpo(j,k)+za(j)+local_bgc_mem%wopal(j,k))
 
-           local_bgc_mem%bgctra(j,k,idust)   = (local_bgc_mem%bgctra(j,k,idust)*(pddpo(j,k)+za(j)))    &
+                local_bgc_mem%bgctra(j,k,idust)   = (local_bgc_mem%bgctra(j,k,idust)*(pddpo(j,k)+za(j)))    &
                 &                / (pddpo(j,k)+za(j)+local_bgc_mem%wdust(j,k))
 
-           local_bgc_mem%bgctend(j,k,kwdust) = local_bgc_mem%wdust(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwpoc)  = local_bgc_mem%wpoc(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwopal) = local_bgc_mem%wopal(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwcal)  = local_bgc_mem%wcal(j,k)*inv_dtbgc
-          ENDIF
+                local_bgc_mem%bgctend(j,k,kwdust) = local_bgc_mem%wdust(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwpoc)  = local_bgc_mem%wpoc(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwopal) = local_bgc_mem%wopal(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwcal)  = local_bgc_mem%wcal(j,k)*inv_dtbgc
 
-         !$ACC LOOP SEQ
-         DO k=2,kpke
-          IF(pddpo(j,k) > EPSILON(0.5_wp))THEN
-          ! water column
-              local_bgc_mem%bgctra(j,k,idet)  = (local_bgc_mem%bgctra(j,k  ,idet)*pddpo(j,k)    &
-                   &        +  local_bgc_mem%bgctra(j,k-1,idet)*local_bgc_mem%wpoc(j,k-1))/  &
-                   &                     (pddpo(j,k)+local_bgc_mem%wpoc(j,k))
-              local_bgc_mem%bgctra(j,k,icalc)   = (local_bgc_mem%bgctra(j,k  ,icalc)*pddpo(j,k)   &
-                   &                +  local_bgc_mem%bgctra(j,k-1,icalc)*local_bgc_mem%wcal(j,k-1))/         &
-                   &                           (pddpo(j,k)+local_bgc_mem%wcal(j,k))
-
-              local_bgc_mem%bgctra(j,k,iopal)   = (local_bgc_mem%bgctra(j,k  ,iopal)*pddpo(j,k)   &
-                   &                +  local_bgc_mem%bgctra(j,k-1,iopal)*local_bgc_mem%wopal(j,k-1))/        &
-                   &                           (pddpo(j,k)+local_bgc_mem%wopal(j,k))
-
-              local_bgc_mem%bgctra(j,k,idust)   = (local_bgc_mem%bgctra(j,k  ,idust)*pddpo(j,k)   &
-                   &                +  local_bgc_mem%bgctra(j,k-1,idust)*local_bgc_mem%wdust(j,k-1))/        &
-                   &                           (pddpo(j,k)+local_bgc_mem%wdust(j,k))
-
-           local_bgc_mem%bgctend(j,k,kwdust) = local_bgc_mem%wdust(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwpoc)  = local_bgc_mem%wpoc(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwopal) = local_bgc_mem%wopal(j,k)*inv_dtbgc
-           local_bgc_mem%bgctend(j,k,kwcal)  = local_bgc_mem%wcal(j,k)*inv_dtbgc
-          ENDIF
-         ENDDO
-
-        IF(pddpo(j,kbo(j)) > EPSILON(0.5_wp))THEN
-
-           ! sediment fluxes at the bottom
-            local_sediment_mem%prorca(j) = local_bgc_mem%bgctra(j,kbo(j),idet )*local_bgc_mem%wpoc(j,kbo(j))
-            local_sediment_mem%prcaca(j) = local_bgc_mem%bgctra(j,kbo(j),icalc)*local_bgc_mem%wcal(j,kbo(j))
-            local_sediment_mem%silpro(j) = local_bgc_mem%bgctra(j,kbo(j),iopal)*local_bgc_mem%wopal(j,kbo(j))
-            local_sediment_mem%produs(j) = local_bgc_mem%bgctra(j,kbo(j),idust)*local_bgc_mem%wdust(j,kbo(j))
-            local_bgc_mem%bgcflux(j,kprorca) = local_sediment_mem%prorca(j)*inv_dtbgc
-            local_bgc_mem%bgcflux(j,kprcaca) = local_sediment_mem%prcaca(j)*inv_dtbgc
-            local_bgc_mem%bgcflux(j,ksilpro) = local_sediment_mem%silpro(j)*inv_dtbgc
-            local_bgc_mem%bgcflux(j,kprodus) = local_sediment_mem%produs(j)*inv_dtbgc
-
-          ENDIF
-         ENDIF
+            END IF
+        END IF
       END DO
-      !$ACC END PARALLEL
+
+      DO k = 2, max_klevs
+        DO j = start_idx, end_idx
+            IF( (k <= klev(j)) .AND. (pddpo(j,k) > EPSILON(0.5_wp)) ) THEN
+
+                ! water column
+                local_bgc_mem%bgctra(j,k,idet)  = (local_bgc_mem%bgctra(j,k  ,idet)*pddpo(j,k)    &
+                &        +  local_bgc_mem%bgctra(j,k-1,idet)*local_bgc_mem%wpoc(j,k-1))/  &
+                &                     (pddpo(j,k)+local_bgc_mem%wpoc(j,k))
+
+                local_bgc_mem%bgctra(j,k,icalc)   = (local_bgc_mem%bgctra(j,k  ,icalc)*pddpo(j,k)   &
+                &                +  local_bgc_mem%bgctra(j,k-1,icalc)*local_bgc_mem%wcal(j,k-1))/         &
+                &                           (pddpo(j,k)+local_bgc_mem%wcal(j,k))
+
+                local_bgc_mem%bgctra(j,k,iopal)   = (local_bgc_mem%bgctra(j,k  ,iopal)*pddpo(j,k)   &
+                &                +  local_bgc_mem%bgctra(j,k-1,iopal)*local_bgc_mem%wopal(j,k-1))/        &
+                &                           (pddpo(j,k)+local_bgc_mem%wopal(j,k))
+
+                local_bgc_mem%bgctra(j,k,idust)   = (local_bgc_mem%bgctra(j,k  ,idust)*pddpo(j,k)   &
+                &                +  local_bgc_mem%bgctra(j,k-1,idust)*local_bgc_mem%wdust(j,k-1))/        &
+                &                           (pddpo(j,k)+local_bgc_mem%wdust(j,k))
+
+                local_bgc_mem%bgctend(j,k,kwdust) = local_bgc_mem%wdust(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwpoc)  = local_bgc_mem%wpoc(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwopal) = local_bgc_mem%wopal(j,k)*inv_dtbgc
+                local_bgc_mem%bgctend(j,k,kwcal)  = local_bgc_mem%wcal(j,k)*inv_dtbgc
+            END IF
+        END DO
+      END DO
+
+      DO j = start_idx, end_idx
+        IF(klev(j) > 0) THEN
+            IF(pddpo(j,local_bgc_mem%kbo(j)) > EPSILON(0.5_wp)) THEN
+                ! sediment fluxes at the bottom
+                local_sediment_mem%prorca(j) = local_bgc_mem%bgctra(j,local_bgc_mem%kbo(j),idet )*local_bgc_mem%wpoc(j,local_bgc_mem%kbo(j))
+                local_sediment_mem%prcaca(j) = local_bgc_mem%bgctra(j,local_bgc_mem%kbo(j),icalc)*local_bgc_mem%wcal(j,local_bgc_mem%kbo(j))
+                local_sediment_mem%silpro(j) = local_bgc_mem%bgctra(j,local_bgc_mem%kbo(j),iopal)*local_bgc_mem%wopal(j,local_bgc_mem%kbo(j))
+                local_sediment_mem%produs(j) = local_bgc_mem%bgctra(j,local_bgc_mem%kbo(j),idust)*local_bgc_mem%wdust(j,local_bgc_mem%kbo(j))
+                local_bgc_mem%bgcflux(j,kprorca) = local_sediment_mem%prorca(j)*inv_dtbgc
+                local_bgc_mem%bgcflux(j,kprcaca) = local_sediment_mem%prcaca(j)*inv_dtbgc
+                local_bgc_mem%bgcflux(j,ksilpro) = local_sediment_mem%silpro(j)*inv_dtbgc
+                local_bgc_mem%bgcflux(j,kprodus) = local_sediment_mem%produs(j)*inv_dtbgc
+            END IF
+        END IF
+      END DO
 
       END SUBROUTINE settling
-
 
 !>
 !! @file settling.f90
