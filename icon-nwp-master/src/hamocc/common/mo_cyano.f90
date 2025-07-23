@@ -378,16 +378,20 @@ SUBROUTINE cyadyn(local_bgc_mem, klevs, start_idx, end_idx, pddpo, za, ptho, pti
 
 #else
 
-    DO j=start_idx,end_idx
+    DO j = start_idx, end_idx
 
         IF (klevs(j) > 0) THEN
-
             IF(pddpo(j,klevs(j)) .GT. EPSILON(0.5_wp)) THEN
                 local_bgc_mem%bgctra(j,klevs(j),icya)  = (local_bgc_mem%bgctra(j,klevs(j),icya)*pddpo(j,klevs(j)))      &
                 &              / (pddpo(j,klevs(j))+wcya)
             END IF
+        END IF
 
-            DO k = (klevs(j)-1), 2, -1
+    END DO
+
+    DO k = (max_klevs-1), 2, -1
+        DO j = start_idx, end_idx
+            IF (k < klevs(j)) THEN
                 ! water column
                 IF(pddpo(j,k+1) .LE. EPSILON(0.5_wp)) THEN ! last wet cell
                     local_bgc_mem%bgctra(j,k,icya)  = (local_bgc_mem%bgctra(j,k,icya)*pddpo(j,k))      &
@@ -397,12 +401,16 @@ SUBROUTINE cyadyn(local_bgc_mem, klevs, start_idx, end_idx, pddpo, za, ptho, pti
                    &                +  local_bgc_mem%bgctra(j,k+1,icya)*wcya)  &
                    &               / (pddpo(j,k)+wcya)
                 END IF
-            END DO
+            END IF
+        END DO
+    END DO
 
+    DO j = start_idx, end_idx
+
+        IF (klevs(j) > 0) THEN
             IF((pddpo(j,1) .GT. EPSILON(0.5_wp)) .AND. (pddpo(j,2) .GT. EPSILON(0.5_wp)) ) THEN ! only if next cell also wet
                 local_bgc_mem%bgctra(j,1,icya)  =  local_bgc_mem%bgctra(j,1,icya) + (wcya*local_bgc_mem%bgctra(j,2,icya))/(pddpo(j,1)+za(j))
             END IF
-
         END IF
 
     END DO
