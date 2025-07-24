@@ -113,9 +113,13 @@
       CHARACTER(LEN=max_char_length), PARAMETER :: &
                 routine = 'update_icon'
 
+      INTEGER :: max_klevs
+
      ! CALL message(TRIM(routine), 'start' )
 
      CALL set_acc_host_or_device(lzacc, lacc)
+
+#if 0
 
       !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
       !$ACC LOOP GANG VECTOR
@@ -133,6 +137,28 @@
         ENDIF
       ENDDO
       !$ACC END PARALLEL
+
+#else
+
+    max_klevs = MAXVAL(klevs(start_idx:end_idx))
+
+    DO jc = start_idx , end_idx
+        IF (pddpo(jc, 1) .GT. EPSILON(0.5_wp)) THEN
+            pco2flx(jc) = local_bgc_mem%bgcflux(jc,kcflux_cpl) * molw_co2
+        END IF
+    END DO
+
+    DO itrac = 1, n_bgctra
+        DO jk = 1, max_klevs
+            DO jc = start_idx , end_idx
+                IF ( (jk <= klevs(jc)) .AND. (pddpo(jc, 1) .GT. EPSILON(0.5_wp)) ) THEN
+                    ptracer(jc,jk,jb,itrac) = local_bgc_mem%bgctra(jc,jk,itrac)
+                END IF
+            END DO
+        END DO
+    END DO ! itrac
+
+#endif
 
       END SUBROUTINE
 
@@ -245,6 +271,8 @@
         END DO
       END DO
 
+#if 0
+
       !$ACC LOOP GANG VECTOR COLLAPSE(2)
       DO jk =1,max_klevs
         DO jc=start_index,end_index
@@ -256,6 +284,20 @@
           END IF
         END DO
       END DO
+
+#else
+
+    DO itrac = 1, n_bgctra
+        DO jk = 1, max_klevs
+            DO jc = start_index, end_index
+                IF (pddpo(jc, 1) .GT. EPSILON(0.5_wp) .and. jk <= klevs(jc)) THEN
+                    local_bgc_mem%bgctra(jc,jk,itrac)=ptracer(jc,jk,jb,itrac)
+                END IF
+            END DO
+        END DO
+    END DO
+
+#endif
 
       IF (lsediment_only) THEN
         !$ACC LOOP GANG VECTOR
