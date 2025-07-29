@@ -70,18 +70,10 @@ MODULE mo_bgc_icon
     & bgc_local_memory, sediment_local_memory, aggregates_memory, bgc_memory_copies
   USE mo_fortran_tools, ONLY: set_acc_host_or_device
 
-  USE mpi
-
   IMPLICIT NONE
   PRIVATE
 
   PUBLIC :: bgc_icon
-
-  INTEGER :: loadBalanceWeight = 0
-  INTEGER :: loadBalanceNum = 0
-  LOGICAL :: printLoadBalance = .TRUE.
-  INTEGER :: numSteps = 0
-  DOUBLE PRECISION :: exeTime = 0.0D0
 
 CONTAINS
 
@@ -117,8 +109,6 @@ SUBROUTINE BGC_ICON(p_patch_3D, hamocc_ocean_state, ssh, pddpo, ptiestu, lacc)
 
   INTEGER :: i,jc,k,kpke
   LOGICAL :: lzacc
-
-  DOUBLE PRECISION :: startTimer, finishTimer
 
   CHARACTER(LEN=*), PARAMETER  :: str_module = 'BGC_ICON'  ! Output of module for 1 line debug
 !   INTEGER :: idt_src
@@ -203,7 +193,6 @@ IF (test_memory_copies /= bgc_memory_copies) &
 
 !ICON_OMP_DO PRIVATE(levels, start_index, end_index)
 #endif
-
   DO jb = all_cells%start_block, all_cells%end_block
 
         CALL get_index_range(all_cells, jb, start_index, end_index)
@@ -357,19 +346,12 @@ IF (test_memory_copies /= bgc_memory_copies) &
         !----------------------------------------------------------------------
         ! Calculate carbonate dissolution
 
-        IF(printLoadBalance) THEN
-            loadBalanceWeight = loadBalanceWeight + SUM(levels(start_index : end_index))
-            loadBalanceNum = loadBalanceNum + end_index - start_index + 1
-        END IF
-
         start_detail_timer(timer_bgc_calc,5)
-        startTimer = MPI_Wtime()
         CALL calc_dissol(local_bgc_memory, start_index, end_index, levels,   &
    &               pddpo(:,:,jb),& ! cell thickness
    &               ocean_to_hamocc_state%salinity(:,:,jb),         &  ! salinity
    &               ptiestu(:,:,jb), lacc=lzacc) !depths at interface
-        finishTimer = MPI_Wtime()
-        exeTime = exeTime + finishTimer - startTimer
+
         stop_detail_timer(timer_bgc_calc,5)
        !----------------------------------------------------------------------
         ! Calculate sediment dynamics
@@ -411,17 +393,6 @@ IF (test_memory_copies /= bgc_memory_copies) &
 !ICON_OMP_END_DO
 !ICON_OMP_END_PARALLEL
 #endif
-
-IF(printLoadBalance) THEN
-    WRITE(*,*) "DISSOL_LB ", loadBalanceWeight, " ", loadBalanceNum
-    printLoadBalance = .FALSE.
-END IF
-
-numSteps = numSteps + 1
-IF(numSteps == 200) THEN
-    WRITE(*,*) "DISSOL_REPORT ", exeTime, " ", loadBalanceNum, " ", loadBalanceWeight
-END IF
-
 ! O2 min depth & value diagnostics
 CALL get_omz(hamocc_state, p_patch_3d, pddpo, ssh, lacc=lzacc)
 
