@@ -322,6 +322,8 @@
 
    END SUBROUTINE DILUTE_HAMOCC_TRACERS
 
+#if 0
+
     SUBROUTINE dilute_hamocc_tracers_zstar(p_patch_3D, top_dilution_coeff, stretch_c, hamocc_state_prog)
     ! HAMOCC tracer dilution with interpolation of subsurface levels due to changed level thicknesses
 
@@ -425,5 +427,110 @@
 
    END SUBROUTINE dilute_hamocc_tracers_zstar
 
+#else
+
+   SUBROUTINE dilute_hamocc_tracers_zstar(p_patch_3D, top_dilution_coeff, stretch_c, hamocc_state_prog)
+     ! HAMOCC tracer dilution with interpolation of subsurface levels due to changed level thicknesses
+
+     TYPE(t_patch_3D ),TARGET, INTENT(IN)     :: p_patch_3D
+     TYPE(t_hamocc_prog), INTENT(inout)       :: hamocc_state_prog
+     REAL(wp), INTENT(in)                     :: top_dilution_coeff(nproma,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks)
+     REAL(wp), INTENT(in)                     :: stretch_c(nproma,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks)
+
+     ! Local variables
+     INTEGER:: jb, jc, jk, i_bgc_tra, i_startidx_c, i_endidx_c
+     TYPE(t_subset_range), POINTER :: all_cells
+     TYPE(t_patch), POINTER        :: p_patch
+     REAL(wp)                      :: h_old(nproma,bgc_zlevs,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks)
+     REAL(wp)                      :: h_new(nproma,bgc_zlevs,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks)
+     REAL(wp)                      :: h_change(nproma,bgc_zlevs,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks)
+     REAL(wp)                      :: tracer_old(nproma,bgc_zlevs,p_patch_3D%p_patch_2D(1)%alloc_cell_blocks,n_bgctra)
+     REAL(wp)                      :: tmp
+     INTEGER                       :: nlevs, max_nlevs
+
+     p_patch => p_patch_3D%p_patch_2D(1)
+     all_cells => p_patch%cells%all
+
+     !$ACC DATA CREATE(h_old, h_new, h_change, tracer_old) IF(lacc)
+     
+     DO jb = all_cells%start_block, all_cells%end_block
+       CALL get_index_range(all_cells, jb, i_startidx_c, i_endidx_c)
+       
+       max_nlevs = MAXVAL(p_patch_3D%p_patch_1D(1)%dolic_c(i_startidx_c:i_endidx_c,jb))
+       
+       DO jk = 1,max_nlevs
+         DO jc = i_startidx_c, i_endidx_c
+           IF (p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb) > 0 .AND. &
+               jk <= p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb)) THEN
+             
+             h_old(jc,jk,jb) = p_patch_3D%p_patch_1D(1)%prism_thick_flat_sfc_c(jc,jk,jb) &
+                             & * top_dilution_coeff(jc,jb) * stretch_c(jc,jb)
+             h_new(jc,jk,jb) = p_patch_3D%p_patch_1D(1)%prism_thick_flat_sfc_c(jc,jk,jb) &
+                             & * stretch_c(jc,jb)
+             
+           END IF
+         END DO
+       END DO
+
+       DO jc = i_startidx_c, i_endidx_c
+         IF (p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb) > 0) THEN
+           nlevs = p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb)
+
+           h_change(jc,nlevs,jb) = h_new(jc,nlevs,jb)-h_old(jc,nlevs,jb)
+           DO jk = nlevs-1,1,-1
+                  h_change(jc,jk,jb) = h_change(jc,jk+1,jb) + h_new(jc,jk,jb) - h_old(jc,jk,jb)
+           END DO
+         END IF
+       END DO
+
+       DO i_bgc_tra = 1, n_bgctra
+         DO jk = 1,max_nlevs
+           DO jc = i_startidx_c, i_endidx_c
+             IF (p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb) > 0 .AND. &
+                 jk <= p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb)) THEN
+               tracer_old(jc,jk,jb,i_bgc_tra) = hamocc_state_prog%tracer(jc,jk,jb,i_bgc_tra)
+             END IF
+           END DO
+         END DO
+       END DO
+         
+       DO i_bgc_tra = 1, n_bgctra
+         DO jk = 1,max_nlevs
+           DO jc = i_startidx_c, i_endidx_c
+             IF (p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb) > 0 .AND. &
+                 jk <= p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb)) THEN
+               
+               IF (top_dilution_coeff(jc,jb) > 1.0_wp) THEN
+                 IF (jk == 1) &
+                   tracer_old(jc,1,jb,i_bgc_tra) = h_old(jc,1,jb) / (h_old(jc,1,jb) + h_change(jc,1,jb)) &
+                                       & * tracer_old(jc,1,jb,i_bgc_tra)
+                 IF (jk < p_patch_3D%p_patch_1D(1)%dolic_c(jc,jb)) &
+                   hamocc_state_prog%tracer(jc,jk,jb,i_bgc_tra) = ((h_new(jc,jk,jb) + h_change(jc,jk+1,jb)) &
+                        &   * tracer_old(jc,jk,jb,i_bgc_tra) - h_change(jc,jk+1,jb) &
+                        &   * tracer_old(jc,jk+1,jb,i_bgc_tra)) &
+                        &   / h_new(jc,jk,jb)
+               ELSE IF (top_dilution_coeff(jc,jb) < 1.0_wp) THEN
+                 IF (jk == 1) THEN
+                   hamocc_state_prog%tracer(jc,1,jb,i_bgc_tra) = (h_new(jc,1,jb) - h_change(jc,1,jb)) &
+                       &   * tracer_old(jc,1,jb,i_bgc_tra) / h_new(jc,1,jb)
+                 ELSE
+                   hamocc_state_prog%tracer(jc,jk,jb,i_bgc_tra) = &
+                          & ( h_change(jc,jk,jb) * tracer_old(jc,jk-1,jb,i_bgc_tra) &
+                          &   + (h_new(jc,jk,jb) - h_change(jc,jk,jb))&
+                          &   * tracer_old(jc,jk,jb,i_bgc_tra) ) &
+                          &   / h_new(jc,jk,jb)
+                 END IF
+               END IF
+               
+             END IF
+           END DO
+        END DO
+       END DO
+       
+     END DO
+     
+   END SUBROUTINE dilute_hamocc_tracers_zstar
+
+#endif
 
    END MODULE
