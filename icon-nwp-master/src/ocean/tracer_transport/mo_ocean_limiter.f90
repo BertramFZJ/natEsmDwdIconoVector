@@ -1549,7 +1549,7 @@ CONTAINS
     firstLevel = 1
     nlev = n_zlev
 
-#ifdef _OPENACC
+#if defined(_OPENACC) || defined(__LVECTOR__)
     kmax = maxval(cells_noOfLevels)
 
     !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
@@ -1584,7 +1584,7 @@ CONTAINS
           p_face_up(jc,jk)  = p_face(jc,jk)
           p_face_low(jc,jk) = p_face(jc,ikp1)
         ENDIF
-#ifdef _OPENACC
+#if defined(_OPENACC) || defined(__LVECTOR__)
         END IF
 #endif
       END DO
