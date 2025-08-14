@@ -45,10 +45,12 @@ SUBROUTINE update_linage (local_bgc_mem, klev,start_idx,end_idx, pddpo, lacc)
   REAL(wp), INTENT(in), TARGET   :: pddpo(bgc_nproma,bgc_zlevs)      !< size of scalar grid cell (3rd dimension) [m]
   LOGICAL, INTENT(IN), OPTIONAL  :: lacc
 
-  INTEGER :: jc,k, kpke
+  INTEGER :: jc,k
   REAL(wp) :: fac001
-  LOGICAL :: lzacc
 
+#if 0
+
+  LOGICAL :: kpke, lzacc
   CALL set_acc_host_or_device(lzacc, lacc)
 
   fac001 = dtbgc/(86400._wp*365._wp)
@@ -67,6 +69,26 @@ SUBROUTINE update_linage (local_bgc_mem, klev,start_idx,end_idx, pddpo, lacc)
   ENDDO
   !$ACC END PARALLEL
 
+#else
+
+  INTEGER :: max_klevs
+  max_klevs = MAXVAL(klev(start_idx:end_idx))
+
+  fac001 = dtbgc/(86400._wp*365._wp)
+
+  DO k=1,max_klevs
+    DO jc = start_idx, end_idx
+      IF (pddpo(jc,k) > EPSILON(0.5_wp) .AND. k<=klev(jc)) THEN
+        IF (k==1) THEN
+          local_bgc_mem%bgctra(jc,1,iagesc) = 0._wp
+        ELSE
+          local_bgc_mem%bgctra(jc,k,iagesc) = local_bgc_mem%bgctra(jc,k,iagesc) + fac001
+        END IF
+      END IF
+    END DO
+  END DO
+
+#endif
 
 END SUBROUTINE update_linage
 
