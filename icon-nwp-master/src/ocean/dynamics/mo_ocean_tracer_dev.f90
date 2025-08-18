@@ -952,6 +952,13 @@ CONTAINS
     REAL(wp) :: z_adv_low (nproma, n_zlev, patch_3d%p_patch_2d(1)%nblks_e)
     REAL(wp) :: z_adv_high(nproma, n_zlev, patch_3d%p_patch_2d(1)%nblks_e)
 
+    LOGICAL, SAVE :: printFlag1 = .TRUE.
+    LOGICAL, SAVE :: printFlag2 = .TRUE.
+    LOGICAL, SAVE :: printFlag3 = .TRUE.
+    LOGICAL, SAVE :: printFlag4 = .TRUE.
+    LOGICAL, SAVE :: printFlag5 = .TRUE.
+    LOGICAL, SAVE :: printFlag6 = .TRUE.
+    LOGICAL, SAVE :: printFlag7 = .TRUE.
 
     ! CHARACTER(len=max_char_length), PARAMETER :: &
     !        & routine = ('mo_tracer_advection:advect_diffuse_tracer')
@@ -979,6 +986,13 @@ CONTAINS
     !---------------------------------------------------------------------
     IF ( l_with_vert_tracer_advection ) THEN
 
+        IF(printFlag1) THEN
+            WRITE(*,*) "RSE: BLOCK 1 = ACTIVE"
+            printFlag1 = .FALSE.
+        END IF
+
+      ! CALL upwind_vflux_ppm ==> mo_ocean_tracer_transport_vert.f90::upwind_vflux_ppm_vector subroutine
+      ! adapted for vector engines from the ICON master branch
       CALL advect_flux_vertical( patch_3d,&
         & old_tracer%concentration, &
         & transport_state,                &
@@ -995,6 +1009,7 @@ CONTAINS
     !---------------------------------------------------------------------
     !-Horizontal  advection
     !---------------------------------------------------------------------
+    ! >>> RSE: NOT VECTORIZED
     CALL upwind_zstar_hflux_oce( patch_3d,  &
       & old_tracer%concentration, &
       & transport_state%mass_flux_e,         &
@@ -1005,6 +1020,7 @@ CONTAINS
       & p_op_coeff, stretch_e, z_adv_flux_h)
     z_adv_high = z_adv_flux_h
 
+    ! >>> RSE: limiter_ocean_zalesak_horz_zstar_vector : VECTORIZED
     CALL limiter_ocean_zalesak_horz_zstar( patch_3d,   &
       & transport_state%w,           &
       & old_tracer%concentration,              &
@@ -1017,6 +1033,7 @@ CONTAINS
       & z_adv_flux_h)
 
     !Calculate divergence of advective fluxes
+    ! >>> RSE: div_oce_3D = div_oce_3D_mlevels(NOT VECTORIZED) + div_oce_3D_1level(VECTORIZED)
     CALL div_oce_3d( z_adv_flux_h, patch_3D, p_op_coeff%div_coeff, &
       & div_adv_flux_horz, subset_range=cells_in_domain )
 
@@ -1025,10 +1042,12 @@ CONTAINS
     !---------------------------------------------------------------------
 
     !calculate horizontal and vertical Redi and GM fluxes
+    ! >>> RSE: VECTORIZED
     CALL calc_ocean_physics_zstar(patch_3d, p_os, p_param,p_op_coeff, GMRedi_flux_horz, GMRedi_flux_vert, &
       & old_tracer, tracer_index, typeOfTracers, stretch_c, stretch_e)
 
     !calculate horizontal divergence of diffusive flux
+    ! >>> RSE: div_oce_3D = div_oce_3D_mlevels(NOT VECTORIZED) + div_oce_3D_1level(VECTORIZED)
     CALL div_oce_3d( GMRedi_flux_horz(:,:,:),&
                  &   patch_3d, &
                  &   p_op_coeff%div_coeff, &
@@ -1036,11 +1055,18 @@ CONTAINS
 
     !! FIXME zstar: needs to be multiplied with stretch_c
     !vertical div of GMRedi-flux
+    ! RSE: NOT VECTORIZED ==> USE mo_ocean_math_operators.f90::mo_ocean_math_operators::verticalDiv_vector_onFullLevels_on_block
     CALL verticalDiv_scalar_onFullLevels( patch_3d, &
       & GMRedi_flux_vert(:,:,:), &
       & div_diff_flx_vert)
 
     IF (typeOfTracers == "ocean" )THEN
+
+        IF(printFlag2) THEN
+            WRITE(*,*) "RSE: BLOCK 2 = ACTIVE"
+            printFlag2 = .FALSE.
+        END IF
+
       p_os%p_diag%GMRedi_flux_horz(:,:,:,tracer_index) = GMRedi_flux_horz
       p_os%p_diag%GMRedi_flux_vert(:,:,:,tracer_index)  = GMRedi_flux_vert
     ENDIF
@@ -1054,8 +1080,6 @@ CONTAINS
     !in tracer (and also momentum) eqs. In this case, top boundary condition of
     !vertical Laplacians are homogeneous
 
-!ICON_OMP_PARALLEL_DO PRIVATE(start_cell_index, end_cell_index, jc, level, &
-!ICON_OMP delta_z, delta_z_new, top_bc) ICON_OMP_DEFAULT_SCHEDULE
     DO jb = cells_in_domain%start_block, cells_in_domain%end_block
       CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
       IF (ASSOCIATED(old_tracer%top_bc)) THEN
@@ -1119,8 +1143,6 @@ CONTAINS
 
       END DO
     END DO
-!ICON_OMP_END_PARALLEL_DO
-
 
     !---------DEBUG DIAGNOSTICS-------------------------------------------
     idt_src=3  ! output print level (1-5, fix)
@@ -1132,16 +1154,23 @@ CONTAINS
     ! no sync because of columnwise computation
     IF ( l_with_vert_tracer_diffusion ) THEN
 
+        IF(printFlag3) THEN
+            WRITE(*,*) "RSE: BLOCK 3 = ACTIVE"
+            printFlag3 = .FALSE.
+        END IF
+
       !Vertical mixing: implicit and with coefficient a_v
       !that is the sum of PP-coeff and implicit part of Redi-scheme
 
       ! start by_nils ts_budget
       ! save tracer values temporarily
       IF (new_tracer%diagnostics%is_activated) THEN
+        ! RSE: INACTIVE CODE BLOCK
         new_tracer%diagnostics%idf(:,:,:) = new_tracer%concentration(:,:,:)
       ENDIF
       ! end by_nils ts_budget
 
+      ! RSE: VECTORIZED
       CALL tracer_diffusion_vertical_implicit_zstar( &
           & patch_3d,                      &
           & new_tracer,                &
@@ -1151,6 +1180,9 @@ CONTAINS
       ! tendency from impl. diffusion and impl. Redi part
       ! zstar
       IF (new_tracer%diagnostics%is_activated) THEN
+
+        ! RSE: INACTIVE CODE BLOCK
+
         dz_new = 0.0_wp
         DO jb = cells_in_domain%start_block, cells_in_domain%end_block
           CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
@@ -1169,8 +1201,12 @@ CONTAINS
       ! end by_nils ts_budget
 
       IF(tracer_index == 1) THEN
-      !ICON_OMP_PARALLEL_DO PRIVATE(start_cell_index, end_cell_index, jc, &
-!ICON_OMP level ) ICON_OMP_DEFAULT_SCHEDULE
+
+        IF(printFlag6) THEN
+            WRITE(*,*) "RSE: BLOCK 6 = ACTIVE"
+            printFlag6 = .FALSE.
+        END IF
+
         DO jb = cells_in_domain%start_block, cells_in_domain%end_block
           CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
           DO jc = start_cell_index, end_cell_index
@@ -1183,11 +1219,14 @@ CONTAINS
             END DO
           END DO
         ENDDO
-!ICON_OMP_END_PARALLEL_DO
 
       ELSEIF(tracer_index == 2) THEN
-     !ICON_OMP_PARALLEL_DO PRIVATE(start_cell_index, end_cell_index, jc, &
-!ICON_OMP level ) ICON_OMP_DEFAULT_SCHEDULE
+
+        IF(printFlag7) THEN
+            WRITE(*,*) "RSE: BLOCK 7 = ACTIVE"
+            printFlag7 = .FALSE.
+        END IF
+
         DO jb = cells_in_domain%start_block, cells_in_domain%end_block
           CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
           DO jc = start_cell_index, end_cell_index
@@ -1200,13 +1239,10 @@ CONTAINS
             END DO
           END DO
         ENDDO
-!ICON_OMP_END_PARALLEL_DO
 
       ENDIF!IF(tracer_index == 1)
 
-
     ENDIF!IF ( l_with_vert_tracer_diffusion )
-
 
     CALL sync_patch_array(sync_c, patch_2D, new_tracer%concentration, lacc=.FALSE.)
 
