@@ -960,6 +960,8 @@ CONTAINS
     LOGICAL, SAVE :: printFlag6 = .TRUE.
     LOGICAL, SAVE :: printFlag7 = .TRUE.
 
+    INTEGER :: max_klevs
+
     ! CHARACTER(len=max_char_length), PARAMETER :: &
     !        & routine = ('mo_tracer_advection:advect_diffuse_tracer')
     !-------------------------------------------------------------------------------
@@ -1081,7 +1083,9 @@ CONTAINS
     !vertical Laplacians are homogeneous
 
     DO jb = cells_in_domain%start_block, cells_in_domain%end_block
+
       CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
+
       IF (ASSOCIATED(old_tracer%top_bc)) THEN
         top_bc(:) = old_tracer%top_bc(:,jb)
       ELSE
@@ -1092,9 +1096,15 @@ CONTAINS
         !! d_z*(coeff*w*C) = coeff*d_z(w*C) since coeff is constant for each column
         div_adv_flux_vert(jc, :, jb) = stretch_c(jc, jb)*div_adv_flux_vert(jc, :, jb)
         div_diff_flx_vert(jc, :, jb) = stretch_c(jc, jb)*div_diff_flx_vert(jc, :, jb)
+      END DO
+
+      level = 1
+      DO jc = start_cell_index, end_cell_index
 
         !! Apply boundary conditions
-        DO level = 1, MIN(patch_3d%p_patch_1d(1)%dolic_c(jc,jb),1)  ! this at most should be 1
+        ! DO level = 1, MIN(patch_3d%p_patch_1d(1)%dolic_c(jc,jb),1)  ! this at most should be 1
+        IF(1 <= patch_3d%p_patch_1d(1)%dolic_c(jc,jb)) THEN
+
           delta_z     = patch_3d%p_patch_1D(1)%prism_thick_flat_sfc_c(jc,level,jb)*stretch_c(jc, jb)
           delta_z_new = patch_3d%p_patch_1D(1)%prism_thick_flat_sfc_c(jc,level,jb)*stretch_c_new(jc, jb)
 
@@ -1119,30 +1129,42 @@ CONTAINS
           ENDIF
           ! end by_nils ts_budget
 
-        END DO
+        ! END DO ! level
+        END IF
 
-        DO level = 2, patch_3d%p_patch_1d(1)%dolic_c(jc,jb)
+      END DO ! jc
 
-          new_tracer%concentration(jc,level,jb) =                          &
-            &  old_tracer%concentration(jc,level,jb)*(stretch_c(jc, jb)/stretch_c_new(jc, jb)) -         &
-            &  (delta_t /  ( stretch_c_new(jc, jb)*patch_3d%p_patch_1D(1)%prism_thick_c(jc,level,jb) ) ) &
-            & * (div_adv_flux_horz(jc,level,jb)  + div_adv_flux_vert(jc,level,jb) &
-            &  - div_diff_flux_horz(jc,level,jb)- div_diff_flx_vert(jc,level,jb) )
+      max_klevs = MAXVAL(patch_3d%p_patch_1d(1)%dolic_c(start_cell_index:end_cell_index,jb))
 
-          ! start by_nils ts_budget
-          IF (new_tracer%diagnostics%is_activated) THEN
-            new_tracer%diagnostics%had(jc,level,jb) = -div_adv_flux_horz(jc,level,jb)
-            new_tracer%diagnostics%vad(jc,level,jb) = -div_adv_flux_vert(jc,level,jb)
-            new_tracer%diagnostics%hdf(jc,level,jb) = div_diff_flux_horz(jc,level,jb)
-            new_tracer%diagnostics%vdf(jc,level,jb) = div_diff_flx_vert(jc,level,jb)
-          ENDIF
-          ! end by_nils ts_budget
+      ! DO jc = start_cell_index, end_cell_index
+        ! DO level = 2, max_klevs
+      DO level = 2, max_klevs
+        DO jc = start_cell_index, end_cell_index
 
+            IF(level <= patch_3d%p_patch_1d(1)%dolic_c(jc,jb)) THEN
 
-        ENDDO
+                new_tracer%concentration(jc,level,jb) =                          &
+                &  old_tracer%concentration(jc,level,jb)*(stretch_c(jc, jb)/stretch_c_new(jc, jb)) -         &
+                &  (delta_t /  ( stretch_c_new(jc, jb)*patch_3d%p_patch_1D(1)%prism_thick_c(jc,level,jb) ) ) &
+                & * (div_adv_flux_horz(jc,level,jb)  + div_adv_flux_vert(jc,level,jb) &
+                &  - div_diff_flux_horz(jc,level,jb)- div_diff_flx_vert(jc,level,jb) )
 
-      END DO
-    END DO
+                ! start by_nils ts_budget
+                IF (new_tracer%diagnostics%is_activated) THEN
+                    new_tracer%diagnostics%had(jc,level,jb) = -div_adv_flux_horz(jc,level,jb)
+                    new_tracer%diagnostics%vad(jc,level,jb) = -div_adv_flux_vert(jc,level,jb)
+                    new_tracer%diagnostics%hdf(jc,level,jb) = div_diff_flux_horz(jc,level,jb)
+                    new_tracer%diagnostics%vdf(jc,level,jb) = div_diff_flx_vert(jc,level,jb)
+                ENDIF
+                ! end by_nils ts_budget
+
+            END IF
+
+        END DO ! level
+
+      END DO ! jc
+
+    END DO ! jb
 
     !---------DEBUG DIAGNOSTICS-------------------------------------------
     idt_src=3  ! output print level (1-5, fix)
@@ -1244,9 +1266,13 @@ CONTAINS
 
     ENDIF!IF ( l_with_vert_tracer_diffusion )
 
+    ! 3.012 / 12.275 / 8.934
+    stop_timer(timer_dif_vert,4)
+
     CALL sync_patch_array(sync_c, patch_2D, new_tracer%concentration, lacc=.FALSE.)
 
-    stop_timer(timer_dif_vert,4)
+    ! 23.108 / 55.785 / 34.199
+    ! stop_timer(timer_dif_vert,4)
 
     !---------DEBUG DIAGNOSTICS-------------------------------------------
     idt_src=3  ! output print level (1-5, fix)
