@@ -1018,6 +1018,7 @@ CONTAINS
       & z_adv_flux_h)
     z_adv_low = z_adv_flux_h
 
+    ! >>> RSE: NOT VECTORIZED
     call map_edges2edges_sc_zstar( patch_3d, transport_state%vn, old_tracer%concentration, &
       & p_op_coeff, stretch_e, z_adv_flux_h)
     z_adv_high = z_adv_flux_h
@@ -1224,42 +1225,50 @@ CONTAINS
 
       IF(tracer_index == 1) THEN
 
-        IF(printFlag6) THEN
-            WRITE(*,*) "RSE: BLOCK 6 = ACTIVE"
-            printFlag6 = .FALSE.
-        END IF
-
         DO jb = cells_in_domain%start_block, cells_in_domain%end_block
+
           CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
-          DO jc = start_cell_index, end_cell_index
+          max_klevs = MAXVAL(patch_3d%p_patch_1d(1)%dolic_c(start_cell_index:end_cell_index,jb))
 
-            DO level = 1, patch_3d%p_patch_1d(1)%dolic_c(jc,jb)
+          ! DO jc = start_cell_index, end_cell_index
+            ! DO level = 1, max_klevs
+          DO level = 1, max_klevs
+            DO jc = start_cell_index, end_cell_index
 
-              p_os%p_diag%opottemptend(jc,level,jb)&
-              &=(new_tracer%concentration(jc,level,jb)&
-              &- old_tracer%concentration(jc,level,jb))/dtime
+                IF(level <= patch_3d%p_patch_1d(1)%dolic_c(jc,jb)) THEN
+                    p_os%p_diag%opottemptend(jc,level,jb)&
+                    &=(new_tracer%concentration(jc,level,jb)&
+                    &- old_tracer%concentration(jc,level,jb))/dtime
+                END IF
+
             END DO
+
           END DO
+
         ENDDO
 
       ELSEIF(tracer_index == 2) THEN
 
-        IF(printFlag7) THEN
-            WRITE(*,*) "RSE: BLOCK 7 = ACTIVE"
-            printFlag7 = .FALSE.
-        END IF
-
         DO jb = cells_in_domain%start_block, cells_in_domain%end_block
+
           CALL get_index_range(cells_in_domain, jb, start_cell_index, end_cell_index)
-          DO jc = start_cell_index, end_cell_index
+          max_klevs = MAXVAL(patch_3d%p_patch_1d(1)%dolic_c(start_cell_index:end_cell_index,jb))
 
-            DO level = 1, patch_3d%p_patch_1d(1)%dolic_c(jc,jb)
+          ! DO jc = start_cell_index, end_cell_index
+            ! DO level = 1, max_klevs
+          DO level = 1, max_klevs
+            DO jc = start_cell_index, end_cell_index
 
-              p_os%p_diag%osalttend(jc,level,jb)&
-              &=(new_tracer%concentration(jc,level,jb)&
-              &- old_tracer%concentration(jc,level,jb))/dtime
+                IF(level <= patch_3d%p_patch_1d(1)%dolic_c(jc,jb)) THEN
+                    p_os%p_diag%osalttend(jc,level,jb)&
+                    &=(new_tracer%concentration(jc,level,jb)&
+                    &- old_tracer%concentration(jc,level,jb))/dtime
+                END IF
+
             END DO
+
           END DO
+
         ENDDO
 
       ENDIF!IF(tracer_index == 1)
