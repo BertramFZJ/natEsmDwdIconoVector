@@ -988,11 +988,6 @@ CONTAINS
     !---------------------------------------------------------------------
     IF ( l_with_vert_tracer_advection ) THEN
 
-        IF(printFlag1) THEN
-            WRITE(*,*) "RSE: BLOCK 1 = ACTIVE"
-            printFlag1 = .FALSE.
-        END IF
-
       ! CALL upwind_vflux_ppm ==> mo_ocean_tracer_transport_vert.f90::upwind_vflux_ppm_vector subroutine
       ! adapted for vector engines from the ICON master branch
       CALL advect_flux_vertical( patch_3d,&
@@ -1064,12 +1059,6 @@ CONTAINS
       & div_diff_flx_vert)
 
     IF (typeOfTracers == "ocean" )THEN
-
-        IF(printFlag2) THEN
-            WRITE(*,*) "RSE: BLOCK 2 = ACTIVE"
-            printFlag2 = .FALSE.
-        END IF
-
       p_os%p_diag%GMRedi_flux_horz(:,:,:,tracer_index) = GMRedi_flux_horz
       p_os%p_diag%GMRedi_flux_vert(:,:,:,tracer_index)  = GMRedi_flux_vert
     ENDIF
@@ -1176,11 +1165,6 @@ CONTAINS
     !calculate vert diffusion impicit: result is stored in trac_out
     ! no sync because of columnwise computation
     IF ( l_with_vert_tracer_diffusion ) THEN
-
-        IF(printFlag3) THEN
-            WRITE(*,*) "RSE: BLOCK 3 = ACTIVE"
-            printFlag3 = .FALSE.
-        END IF
 
       !Vertical mixing: implicit and with coefficient a_v
       !that is the sum of PP-coeff and implicit part of Redi-scheme
