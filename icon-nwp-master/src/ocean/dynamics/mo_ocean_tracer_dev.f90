@@ -1006,7 +1006,7 @@ CONTAINS
     !---------------------------------------------------------------------
     !-Horizontal  advection
     !---------------------------------------------------------------------
-    ! >>> RSE: NOT VECTORIZED
+    ! >>> RSE: VECTORIZED
     CALL upwind_zstar_hflux_oce( patch_3d,  &
       & old_tracer%concentration, &
       & transport_state%mass_flux_e,         &

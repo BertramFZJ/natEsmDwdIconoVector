@@ -730,10 +730,6 @@ CONTAINS
   END SUBROUTINE limiter_ocean_zalesak_horz_zstar_scalar
   !-------------------------------------------------------------------------
 
-
-
-
-
   SUBROUTINE upwind_zstar_hflux_oce( patch_3d, cell_value, edge_vn, edge_upwind_flux, opt_start_level, opt_end_level, lacc )
 
     TYPE(t_patch_3d ),TARGET, INTENT(in)   :: patch_3d
@@ -746,7 +742,7 @@ CONTAINS
     ! local variables
     INTEGER, DIMENSION(:,:,:), POINTER :: iilc,iibc  ! pointer to line and block indices
     INTEGER, DIMENSION(:,:,:), POINTER :: idx, blk
-    INTEGER  :: start_level, end_level
+    INTEGER  :: start_level, end_level, max_end_level
     INTEGER  :: start_index, end_index
     INTEGER  :: edge_index, level, blockNo         !< index of edge, vert level, block
     TYPE(t_subset_range), POINTER :: edges_in_domain
@@ -789,10 +785,17 @@ CONTAINS
       edge_upwind_flux(:,:,blockNo) = 0.0_wp
       !$ACC END KERNELS
 
+#ifndef __LVECTOR__
       !$ACC PARALLEL DEFAULT(PRESENT) ASYNC(1) IF(lzacc)
       !$ACC LOOP GANG VECTOR
       DO edge_index = start_index, end_index
         DO level = start_level, MIN(patch_3d%p_patch_1d(1)%dolic_e(edge_index,blockNo), end_level)
+#else
+      max_end_level = MAXVAL(patch_3d%p_patch_1d(1)%dolic_e(start_index:end_index,blockNo))
+      DO level = start_level, max_end_level
+        DO edge_index = start_index, end_index
+          IF (level <= patch_3d%p_patch_1d(1)%dolic_e(edge_index,blockNo)) THEN
+#endif
           !
           ! compute the first order upwind flux; notice
           ! that multiplication by edge length is avoided to
@@ -805,7 +808,10 @@ CONTAINS
                &   - ABS( edge_vn(edge_index,level,blockNo) ) *               &
                & ( cell_value(iilc(edge_index,blockNo,2),level,iibc(edge_index,blockNo,2)) - &
                &   cell_value(iilc(edge_index,blockNo,1),level,iibc(edge_index,blockNo,1)) ) )
-
+          !
+#ifdef __LVECTOR__
+          END IF
+#endif
         END DO  ! end loop over edges
       END DO  ! end loop over levels
       !$ACC END PARALLEL
