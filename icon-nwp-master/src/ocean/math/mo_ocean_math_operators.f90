@@ -1574,7 +1574,9 @@ CONTAINS
     DO blockNo = cells_in_domain%start_block, cells_in_domain%end_block
 
       CALL get_index_range(cells_in_domain, blockNo, start_cell_index, end_cell_index)
+
       vertDiv_scalar(:,:,blockNo) = 0.0_wp ! only for the top level
+
       CALL verticalDiv_scalar_onFullLevels_on_block(patch_3d, scalar_in(:,:,blockNo), vertDiv_scalar(:,:,blockNo), start_level, &
         & blockNo, start_cell_index, end_cell_index)
 
@@ -1593,6 +1595,38 @@ CONTAINS
   !!
   !!
 !<Optimize:inUse>
+#ifdef __LVECTOR__
+
+  SUBROUTINE verticalDiv_scalar_onFullLevels_on_block(patch_3d, scalar_in, vertDiv_scalar, start_level, &
+    & blockNo, start_index, end_index)
+    TYPE(t_patch_3d ),TARGET, INTENT(in)             :: patch_3d
+    REAL(wp), INTENT(in)                             :: scalar_in(nproma, n_zlev+1)
+    INTEGER, INTENT(in)                              :: start_level
+    INTEGER, INTENT(in)                              :: blockNo, start_index, end_index
+    REAL(wp), INTENT(inout)                          :: vertDiv_scalar(nproma, n_zlev)    ! out
+
+    INTEGER :: jk, jc
+    REAL(wp), POINTER ::  inv_prism_thickness(:,:)
+
+    INTEGER :: max_klevs
+
+    inv_prism_thickness => patch_3D%p_patch_1D(1)%invConstantPrismThickness(:, :, blockNo)
+    max_klevs = MAXVAL(patch_3D%p_patch_1d(1)%dolic_c(start_index:end_index, blockNo))
+
+    DO jk = start_level, max_klevs
+
+        DO jc = start_index, end_index
+            IF(jk <= patch_3D%p_patch_1d(1)%dolic_c(jc,blockNo)) THEN
+                vertDiv_scalar(jc,jk) = scalar_in(jc,jk) - scalar_in(jc,jk+1)
+            END IF
+        END DO
+
+    END DO
+
+  END SUBROUTINE verticalDiv_scalar_onFullLevels_on_block
+
+#else
+
   SUBROUTINE verticalDiv_scalar_onFullLevels_on_block(patch_3d, scalar_in, vertDiv_scalar, start_level, &
     & blockNo, start_index, end_index)
     TYPE(t_patch_3d ),TARGET, INTENT(in)             :: patch_3d
@@ -1622,6 +1656,8 @@ CONTAINS
     END DO
      !CALL sync_patch_array(sync_c, patch_3D%p_patch_2D(1), vertDiv_scalar, lacc=.FALSE.)
   END SUBROUTINE verticalDiv_scalar_onFullLevels_on_block
+
+#endif
   !-------------------------------------------------------------------------
 
   !-------------------------------------------------------------------------

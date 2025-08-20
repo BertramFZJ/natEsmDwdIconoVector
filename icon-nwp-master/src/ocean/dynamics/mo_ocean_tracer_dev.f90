@@ -1053,7 +1053,7 @@ CONTAINS
 
     !! FIXME zstar: needs to be multiplied with stretch_c
     !vertical div of GMRedi-flux
-    ! RSE: NOT VECTORIZED ==> USE mo_ocean_math_operators.f90::mo_ocean_math_operators::verticalDiv_vector_onFullLevels_on_block
+    ! RSE: VECTORIZED
     CALL verticalDiv_scalar_onFullLevels( patch_3d, &
       & GMRedi_flux_vert(:,:,:), &
       & div_diff_flx_vert)
