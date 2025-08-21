@@ -1975,6 +1975,114 @@ CONTAINS
   !-----------------------------------------------------------------------------
   ! the map_edges2edges_viacell_3d_mlev_constZ optimized for triangles
   !<Optimize:inUse>
+
+#ifdef __LVECTOR__
+
+  SUBROUTINE map_edges2edges_sc_zstar( patch_3d, vn_e, scalar, operators_coefficients, stretch_e, out_vn_e, lacc)
+
+    TYPE(t_patch_3d ),TARGET, INTENT(in) :: patch_3d
+    REAL(wp), INTENT(in)                 :: vn_e(nproma,n_zlev,patch_3d%p_patch_2d(1)%nblks_e)
+    REAL(wp), INTENT(in)                 :: scalar(nproma,n_zlev,patch_3d%p_patch_2d(1)%alloc_cell_blocks)
+    TYPE(t_operator_coeff), INTENT(in)   :: operators_coefficients
+    REAL(wp), INTENT(in)                 :: stretch_e(nproma, patch_3d%p_patch_2d(1)%nblks_e)
+    REAL(wp), INTENT(inout)              :: out_vn_e(nproma,n_zlev,patch_3d%p_patch_2d(1)%nblks_e)
+    LOGICAL, INTENT(in), OPTIONAL        :: lacc
+    !Local variables
+    INTEGER :: startLevel, endLevel, max_end_level
+    INTEGER :: start_edge_index, end_edge_index
+    INTEGER :: je, blockNo, level
+    LOGICAL :: lzacc
+
+    INTEGER :: cell_1_index, cell_2_index, cell_1_block, cell_2_block
+    INTEGER :: edge_11_index, edge_12_index, edge_13_index ! edges of cell_1
+    INTEGER :: edge_11_block, edge_12_block, edge_13_block
+    INTEGER :: edge_21_index, edge_22_index, edge_23_index ! edges of cell_2
+    INTEGER :: edge_21_block, edge_22_block, edge_23_block
+
+    REAL(wp), POINTER :: coeffs(:,:,:,:)
+    REAL(wp) :: thick_edge, thick_cell, thick_frac
+    TYPE(t_subset_range), POINTER :: edges_in_domain
+    TYPE(t_patch), POINTER :: patch_2d
+    !-----------------------------------------------------------------------
+    IF (no_primal_edges /= 3) &
+      & CALL finish ('map_edges2edges_viacell triangle version', 'no_primal_edges /= 3')
+
+    !-----------------------------------------------------------------------
+    patch_2d   => patch_3d%p_patch_2d(1)
+    edges_in_domain => patch_2d%edges%in_domain
+    startLevel = 1
+    endLevel = n_zlev
+    coeffs => operators_coefficients%edge2edge_viacell_coeff
+    !-----------------------------------------------------------------------
+
+    CALL set_acc_host_or_device(lzacc, lacc)
+
+    DO blockNo = edges_in_domain%start_block, edges_in_domain%end_block
+
+      CALL get_index_range(edges_in_domain, blockNo, start_edge_index, end_edge_index)
+
+      out_vn_e(:, :, blockNo) = 0.0_wp
+
+      max_end_level = MAXVAL(patch_3d%p_patch_1d(1)%dolic_e(start_edge_index:end_edge_index,blockNo))
+      DO level = startLevel,max_end_level
+        DO je =  start_edge_index, end_edge_index
+          IF (patch_3d%p_patch_1d(1)%dolic_e(je,blockNo) < 1) CYCLE
+          IF (level <= patch_3d%p_patch_1d(1)%dolic_e(je,blockNo)) THEN
+
+        cell_1_index = patch_2d%edges%cell_idx(je,blockNo,1)
+        cell_1_block = patch_2d%edges%cell_blk(je,blockNo,1)
+        cell_2_index = patch_2d%edges%cell_idx(je,blockNo,2)
+        cell_2_block = patch_2d%edges%cell_blk(je,blockNo,2)
+
+        edge_11_index = patch_2d%cells%edge_idx(cell_1_index, cell_1_block, 1)
+        edge_12_index = patch_2d%cells%edge_idx(cell_1_index, cell_1_block, 2)
+        edge_13_index = patch_2d%cells%edge_idx(cell_1_index, cell_1_block, 3)
+        edge_11_block = patch_2d%cells%edge_blk(cell_1_index, cell_1_block, 1)
+        edge_12_block = patch_2d%cells%edge_blk(cell_1_index, cell_1_block, 2)
+        edge_13_block = patch_2d%cells%edge_blk(cell_1_index, cell_1_block, 3)
+
+        edge_21_index = patch_2d%cells%edge_idx(cell_2_index, cell_2_block, 1)
+        edge_22_index = patch_2d%cells%edge_idx(cell_2_index, cell_2_block, 2)
+        edge_23_index = patch_2d%cells%edge_idx(cell_2_index, cell_2_block, 3)
+        edge_21_block = patch_2d%cells%edge_blk(cell_2_index, cell_2_block, 1)
+        edge_22_block = patch_2d%cells%edge_blk(cell_2_index, cell_2_block, 2)
+        edge_23_block = patch_2d%cells%edge_blk(cell_2_index, cell_2_block, 3)
+
+          out_vn_e(je, level, blockNo) =  &
+            & (  vn_e(edge_11_index, level, edge_11_block) * coeffs(je, level, blockNo, 1)    &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_11_index, level, edge_11_block)     &
+            & * stretch_e(edge_11_index, edge_11_block)  +                                    &
+            & vn_e(edge_12_index, level, edge_12_block) * coeffs(je, level, blockNo, 2)       &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_12_index, level, edge_12_block)     &
+            & * stretch_e(edge_12_index, edge_12_block)  +                                    &
+            & vn_e(edge_13_index, level, edge_13_block) * coeffs(je, level, blockNo, 3)       &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_13_index, level, edge_13_block)     &
+            & * stretch_e(edge_13_index, edge_13_block)                                       &
+            & )* scalar(cell_1_index, level, cell_1_block)                                    &
+            & + &
+            & (  vn_e(edge_21_index, level, edge_21_block) * coeffs(je, level, blockNo, 4)    &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_21_index, level, edge_21_block)     &
+            & * stretch_e(edge_21_index, edge_21_block)  +                                    &
+            & vn_e(edge_22_index, level, edge_22_block) * coeffs(je, level, blockNo, 5)       &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_22_index, level, edge_22_block)     &
+            & * stretch_e(edge_22_index, edge_22_block)  +                                    &
+            & vn_e(edge_23_index, level, edge_23_block) * coeffs(je, level, blockNo, 6)       &
+            & * patch_3d%p_patch_1d(1)%prism_thick_e(edge_23_index, level, edge_23_block)     &
+            & * stretch_e(edge_23_index, edge_23_block)                                       &
+            & ) * scalar(cell_2_index, level, cell_2_block)
+
+          END IF
+
+        END DO ! levels
+
+      END DO
+
+    END DO ! blockNo = edges_in_domain%start_block, edges_in_domain%end_block
+
+  END SUBROUTINE map_edges2edges_sc_zstar
+
+#else
+
   SUBROUTINE map_edges2edges_sc_zstar( patch_3d, vn_e, scalar, operators_coefficients, stretch_e, out_vn_e, lacc)
 
     TYPE(t_patch_3d ),TARGET, INTENT(in) :: patch_3d
@@ -2097,6 +2205,9 @@ CONTAINS
 
   !$ACC END DATA
   END SUBROUTINE map_edges2edges_sc_zstar
+
+#endif
+
   !-----------------------------------------------------------------------------
 
 
